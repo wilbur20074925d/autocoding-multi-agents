@@ -61,6 +61,19 @@ how should we solve this question?,Metacognitive.planning.ask
 
 Labels must follow the 3-tier taxonomy in **label-taxonomy.csv** (in this folder) (e.g. `Cognitive.concept_exploration.ask`).
 
+### Prompts-only CSV (no labels)
+
+For a CSV that contains **only** user prompts (one per row), use **`cloudbot/data/load_prompts_csv.py`** to load prompts. The script supports a header column named `prompt` or `sentence`, or no header (first column = prompt). When the user sends a prompts-only CSV, the AI must process **one prompt at a time**: run the full pipeline for the first prompt and **complete** it before starting the next. No overlapping or batched runs.
+
+Example CSV:
+
+```csv
+prompt
+Do you all know about Bloom's Taxonomy?
+No, this is the first time I'm hearing about it.
+We can Google it, right?
+```
+
 ## Final evaluation (testing via chat)
 
 1. Take testing prompts (from `testing/` or elsewhere).
@@ -73,6 +86,7 @@ You can say for example:
 
 - "Here is a testing prompt: [paste]. Run the full autocoding pipeline and give me the final label."
 - "I have testing data in `cloudbot/data/testing/prompts.jsonl`. Process each and output final labels so I can evaluate."
+- "Attached is a CSV of prompts. Run the pipeline on each row one by one; complete each before starting the next."
 
 ## Quick reference
 

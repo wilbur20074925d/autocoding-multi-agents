@@ -2,6 +2,10 @@
 
 Four-agent pipeline for labeling user prompts into **Cognitive**, **Metacognitive**, **Coordinative**, and **Socio-emotional** interactions using a 3-tier taxonomy.
 
+**Input:** The user may send a **single prompt** (run the pipeline once) or a **CSV file containing only prompts** (one per row). For CSV, process prompts **one by one**; do not start the next prompt until the previous one has fully completed (through Adjudicator). Use `cloudbot/data/load_prompts_csv.py` to load prompts from a CSV.
+
+**Integrations:** Use **Discord** formatting (`cloudbot/discord/format.py`) for structured, readable messages (tables, sections, code). After each prompt completes, **update the [Google Sheet](https://docs.google.com/spreadsheets/d/1atmf7D_qXQzEUVmx82TFv9ztyzkPmG1FSYcFPIyF6rc/edit?usp=sharing)** with `cloudbot/integrations/sheets.append_result()`. See **INTEGRATIONS.md** for setup.
+
 ## Quick reference
 
 | Artifact | Location |

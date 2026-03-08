@@ -1,5 +1,17 @@
 # Autocoding Pipeline: Flow and Agent Interactions
 
+## Input: Single Prompt or CSV of Prompts
+
+The user can send **either**:
+
+1. **A single prompt** (e.g. pasted text or one message)  
+   → Run the full pipeline once on that prompt.
+
+2. **A CSV file that contains only user prompts** (one prompt per row, e.g. a column named `prompt` or `sentence`, or no header with one prompt per line)  
+   → **Read the CSV and process prompts one by one.** The next prompt **must not** start until the previous one has **completed** (Signal Extractor → Label Coder → Boundary Critic → Label Coder revision → Adjudicator). No parallel or batched processing of CSV rows.
+
+To load a prompts-only CSV in code, use **`cloudbot/data/load_prompts_csv.py`** (returns a list of prompt strings in order).
+
 ## Pipeline Overview
 
 ```
@@ -49,3 +61,8 @@ Each agent has a dedicated Cursor skill in this project:
 - `.cursor/skills/adjudicator/SKILL.md`
 
 Invoke the pipeline by running agents in order and passing outputs as inputs to the next. Use the skill when acting as that agent (e.g. "as Signal Extractor", "as Label Coder").
+
+## Integrations
+
+- **Discord**: Format pipeline output for Discord (tables, sections, code blocks) using `cloudbot/discord/format.py` so messages look structured and readable. See **INTEGRATIONS.md**.
+- **Google Sheets**: After each prompt is fully processed, append one row to the [Multi-Agent Autocoding sheet](https://docs.google.com/spreadsheets/d/1atmf7D_qXQzEUVmx82TFv9ztyzkPmG1FSYcFPIyF6rc/edit?usp=sharing) via `cloudbot/integrations/sheets.py` (`append_result`). See **INTEGRATIONS.md** for setup (service account, sharing the sheet).

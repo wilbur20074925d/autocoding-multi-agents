@@ -1,0 +1,5 @@
+# Autocoding pipeline (optional integrations)
+# Core pipeline runs in Cursor/chat; these are for Discord formatting and Google Sheets.
+
+# Google Sheets: append result after each prompt
+gspread>=6.0.0

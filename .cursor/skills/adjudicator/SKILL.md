@@ -39,7 +39,7 @@ Optionally:
    - Use the original prompt, evidence spans, coder’s labels and rationale, and critic’s challenges together. Do not ignore the critic’s reasons or the taxonomy.
 
 3. **Respect the taxonomy**
-   - Final labels must be valid `tier1.tier2.tier3` (or tier2-only for socio-emotional where applicable) from **label-taxonomy.csv**.
+   - Final labels must be valid `tier1.tier2.tier3` (or tier2-only for socio-emotional where applicable) from **cloudbot/data/label-taxonomy.csv**.
 
 4. **Prefer explicit evidence**
    - If the critic argued "evidence not explicit enough" and you agree, prefer "mark uncertain" or "accept critic" over keeping a weakly supported label.
@@ -78,4 +78,4 @@ After the retry round, run Adjudicator again and set `retry` to `null` in the fi
 ## Additional Resources
 
 - Pipeline: [FLOW.md](../../FLOW.md)
-- Taxonomy: [label-taxonomy.csv](../../label-taxonomy.csv)
+- Taxonomy: [label-taxonomy.csv](../../cloudbot/data/label-taxonomy.csv)

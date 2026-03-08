@@ -46,7 +46,7 @@ Output challenges per label or per span, with a short justification.
    - After new evidence is added, you may challenge again on that part.
 
 4. **Be specific**
-   - Reference the exact span and the disputed label. Quote the taxonomy descriptions from **label-taxonomy.csv** when arguing a boundary (e.g. cognitive = task content; metacognitive = how we solve/monitor).
+   - Reference the exact span and the disputed label. Quote the taxonomy descriptions from **cloudbot/data/label-taxonomy.csv** when arguing a boundary (e.g. cognitive = task content; metacognitive = how we solve/monitor).
 
 5. **One round of challenge → revision**
    - Produce one set of challenges. The Label Coder revises once; the Adjudicator then makes the final call (and may trigger an optional retry).
@@ -75,4 +75,4 @@ If no challenges and no evidence requests, set both to empty arrays and optional
 ## Additional Resources
 
 - Pipeline: [FLOW.md](../../FLOW.md)
-- Taxonomy (for boundary definitions): [label-taxonomy.csv](../../label-taxonomy.csv)
+- Taxonomy (for boundary definitions): [label-taxonomy.csv](../../cloudbot/data/label-taxonomy.csv)

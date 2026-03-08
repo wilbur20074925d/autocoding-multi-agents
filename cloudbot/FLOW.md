@@ -16,7 +16,7 @@ Label Coder       (revise once, if challenged)
 Adjudicator       (final arbitration)
 ```
 
-**Context metadata** (from training CSV: **group**, **timestamp-mm**, **people**, and **context**) is passed to **all agents** so they can take session identity, participants, timing, and condition into account when extracting evidence, assigning labels, challenging boundaries, and making final decisions.
+**Context metadata** (from training data in **cloudbot/data/training/**: **group**, **timestamp-mm**, **people**, and **context**) is passed to **all agents** so they can take session identity, participants, timing, and condition into account when extracting evidence, assigning labels, challenging boundaries, and making final decisions.
 
 ## Agent Roles and Interactions
 
@@ -31,7 +31,7 @@ Adjudicator       (final arbitration)
 
 ## Label Taxonomy
 
-The 3-tier structure is defined in **label-taxonomy.csv**:
+The 3-tier structure is defined in **cloudbot/data/label-taxonomy.csv**:
 
 - **Tier 1**: Cognitive | Metacognitive | Coordinative | Socio-emotional
 - **Tier 2**: Sub-category (e.g. concept_exploration, planning, coordinate_participants)

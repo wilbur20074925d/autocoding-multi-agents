@@ -1,0 +1,62 @@
+# Autocoding workflow: Signal Extractor → Label Coder → Boundary Critic → Label Coder (revise) → Adjudicator
+# Replaces the previous Annotator → Reviewer → Judge (debate) pipeline.
+
+name: autocoding
+description: Four-agent pipeline for labeling user prompts (Cognitive, Metacognitive, Coordinative, Socio-emotional) via evidence extraction, draft labeling, boundary criticism, one revision, and final arbitration.
+
+agents:
+  - id: signal_extractor
+    path: agents/signal-extractor
+    inputs: []
+    output_schema:
+      evidence_spans: array
+      candidate_signals: array
+      ambiguity: array
+
+  - id: label_coder
+    path: agents/label-coder
+    inputs: [signal_extractor]
+    output_schema:
+      labels: array
+      uncertain: array
+      revision_note: string
+
+  - id: boundary_critic
+    path: agents/boundary-critic
+    inputs: [signal_extractor, label_coder]
+    output_schema:
+      challenges: array
+      request_missing_evidence: array
+
+  - id: adjudicator
+    path: agents/adjudicator
+    inputs: [signal_extractor, label_coder, boundary_critic]
+    output_schema:
+      final_labels: array
+      uncertain: array
+      retry: object
+
+skills:
+  - signal-extractor
+  - label-coder
+  - boundary-critic
+  - adjudicator
+
+prompts:
+  system: prompts/system.md
+
+steps:
+  - run: signal_extractor
+    on: input
+  - run: label_coder
+    on: [input, signal_extractor.output]
+  - run: boundary_critic
+    on: [input, signal_extractor.output, label_coder.output]
+  - run: label_coder
+    on: [input, signal_extractor.output, boundary_critic.output]
+    as: revision
+  - run: adjudicator
+    on: [input, signal_extractor.output, label_coder.output, boundary_critic.output]
+
+# Optional retry: if adjudicator.output.retry is set, run target (boundary_critic or label_coder)
+# once with adjudicator.output.retry.instruction, then re-run adjudicator (no further loops).

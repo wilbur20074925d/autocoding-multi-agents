@@ -6,7 +6,7 @@ Four-agent pipeline for labeling user prompts into **Cognitive**, **Metacognitiv
 
 | Artifact | Location |
 |----------|----------|
-| **Label taxonomy (3-tier)** | `label-taxonomy.csv` |
+| **Label taxonomy (3-tier)** | `cloudbot/data/label-taxonomy.csv` |
 | **Pipeline flow & interactions** | `FLOW.md` |
 | **Signal Extractor skill** | `.cursor/skills/signal-extractor/SKILL.md` |
 | **Label Coder skill** | `.cursor/skills/label-coder/SKILL.md` |
@@ -28,4 +28,4 @@ Four-agent pipeline for labeling user prompts into **Cognitive**, **Metacognitiv
 - **Coordinative**: collaboration — who does what, how to share (how to collaborate).
 - **Socio-emotional**: emotional, encouragement, forming sense of group.
 
-Full codes are `tier1.tier2.tier3` (e.g. `Cognitive.concept_exploration.ask`). See `label-taxonomy.csv` for all valid codes.
+Full codes are `tier1.tier2.tier3` (e.g. `Cognitive.concept_exploration.ask`). See `cloudbot/data/label-taxonomy.csv` and training data in `cloudbot/data/training/` for structure and examples.

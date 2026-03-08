@@ -38,7 +38,7 @@ group,timestamp-mm,people,context,sentence,LLMs-revised sentence,HC1,HC2
 G11,00:01:13,"1,2,3",no-gai,hhhh,hhh,"cognitive, metacognitive","socio-emotional, metacognitive"
 ```
 
-Labels in HC1 and HC2 must follow the 3-tier taxonomy in **label-taxonomy.csv** (e.g. `Cognitive.concept_exploration.ask`, or tier1-only like `cognitive`, `metacognitive`). Use the script in `training/load_training_csv.py` to load this CSV and convert to a unified format for evaluation.
+Labels in HC1 and HC2 must follow the 3-tier taxonomy in **label-taxonomy.csv** (in this folder: `cloudbot/data/label-taxonomy.csv`) (e.g. `Cognitive.concept_exploration.ask`, or tier1-only like `cognitive`, `metacognitive`). Use the script in `training/load_training_csv.py` to load this CSV and convert to a unified format for evaluation.
 
 **Context for the pipeline:** When you run the autocoding pipeline (Signal Extractor → Label Coder → Boundary Critic → Adjudicator), pass **group**, **timestamp-mm**, **people**, and **context** along with each prompt. All four agents are instructed to take these into consideration (e.g. who is speaking, which session, when in the session) when extracting evidence, assigning labels, challenging boundaries, and making final decisions. See **FLOW.md** and each agent’s skill under `.cursor/skills/`.
 
@@ -59,23 +59,23 @@ what is bloom taxonomy?,Cognitive.concept_exploration.ask
 how should we solve this question?,Metacognitive.planning.ask
 ```
 
-Labels must follow the 3-tier taxonomy in **label-taxonomy.csv** (e.g. `Cognitive.concept_exploration.ask`).
+Labels must follow the 3-tier taxonomy in **label-taxonomy.csv** (in this folder) (e.g. `Cognitive.concept_exploration.ask`).
 
 ## Final evaluation (testing via chat)
 
 1. Take testing prompts (from `testing/` or elsewhere).
 2. In chat, send each prompt (or a batch) and ask the AI to run the **autocoding pipeline**:
-   - “Run the Signal Extractor on this prompt, then Label Coder, then Boundary Critic, then Adjudicator.”
+   - "Run the Signal Extractor on this prompt, then Label Coder, then Boundary Critic, then Adjudicator."
 3. Use the Adjudicator’s final label as the **model prediction**.
 4. Compare to your **held-out correct labels** (if you have them) to compute accuracy, or review quality manually.
 
 You can say for example:
 
-- “Here is a testing prompt: [paste]. Run the full autocoding pipeline and give me the final label.”
-- “I have testing data in `data/testing/prompts.jsonl`. Process each and output final labels so I can evaluate.”
+- "Here is a testing prompt: [paste]. Run the full autocoding pipeline and give me the final label."
+- "I have testing data in `cloudbot/data/testing/prompts.jsonl`. Process each and output final labels so I can evaluate."
 
 ## Quick reference
 
-- Label taxonomy: **label-taxonomy.csv**
+- Label taxonomy: **cloudbot/data/label-taxonomy.csv** (or `label-taxonomy.csv` in this folder)
 - Pipeline order: **FLOW.md**
 - Skills: `.cursor/skills/signal-extractor/`, `label-coder/`, `boundary-critic/`, `adjudicator/`

@@ -17,13 +17,13 @@ Second agent in the pipeline. Takes the **original prompt** and **extracted evid
 
 ## Outputs (to Boundary Critic, then Adjudicator)
 
-- **Final labels** per span or per prompt segment: `tier1.tier2.tier3` from **label-taxonomy.csv**
+- **Final labels** per span or per prompt segment: `tier1.tier2.tier3` from **cloudbot/data/label-taxonomy.csv**
 - **Evidence used**: which span(s) support each assigned label
 - Optional: short justification per label
 
 ## Taxonomy Reference
 
-Labels must come from **label-taxonomy.csv**. Format: `Tier1.tier2.tier3` (e.g. `Cognitive.concept_exploration.ask`, `Metacognitive.monitoring.ask`).
+Labels must come from **cloudbot/data/label-taxonomy.csv**. Use **cloudbot/data/training/** for training examples when calibrating. Format: `Tier1.tier2.tier3` (e.g. `Cognitive.concept_exploration.ask`, `Metacognitive.monitoring.ask`).
 
 ## Instructions
 
@@ -71,4 +71,4 @@ After a revision round, set `revision_note` to a short summary of what was chang
 ## Additional Resources
 
 - Pipeline: [FLOW.md](../../FLOW.md)
-- Taxonomy: [label-taxonomy.csv](../../label-taxonomy.csv)
+- Taxonomy: [label-taxonomy.csv](../../cloudbot/data/label-taxonomy.csv)

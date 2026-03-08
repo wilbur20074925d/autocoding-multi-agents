@@ -22,7 +22,7 @@ First agent in the autocoding pipeline. Produces **evidence** and **candidate si
 
 ## Taxonomy Reference
 
-Use the project’s **label-taxonomy.csv** (3-tier: Cognitive, Metacognitive, Coordinative, Socio-emotional) to know which candidate labels exist. Use it only to *suggest* candidate signals; do not commit to a final code.
+Use the project’s **cloudbot/data/label-taxonomy.csv** (3-tier: Cognitive, Metacognitive, Coordinative, Socio-emotional) to know which candidate labels exist. Training examples: **cloudbot/data/training/**. Use it only to *suggest* candidate signals; do not commit to a final code.
 
 ## Instructions
 
@@ -73,4 +73,4 @@ Use a structured format so the Label Coder can consume it (e.g. JSON or markdown
 ## Additional Resources
 
 - Pipeline and agent roles: [FLOW.md](../../FLOW.md)
-- Full taxonomy: [label-taxonomy.csv](../../label-taxonomy.csv)
+- Full taxonomy: [label-taxonomy.csv](../../cloudbot/data/label-taxonomy.csv)

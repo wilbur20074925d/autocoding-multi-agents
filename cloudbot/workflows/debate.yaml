@@ -1,0 +1,43 @@
+# Debate workflow: Annotator → Reviewer → Judge
+# Defines the pipeline and expected outputs for the multi-agent debate flow.
+
+name: debate
+description: Multi-agent pipeline where Annotator produces structured annotations, Reviewer evaluates them, and Judge issues a final verdict.
+
+agents:
+  - id: annotator
+    path: agents/annotator
+    output_schema:
+      annotations: array
+      metadata: object
+
+  - id: reviewer
+    path: agents/reviewer
+    inputs: [annotator]
+    output_schema:
+      summary: string
+      issues: array
+      score: number
+
+  - id: judge
+    path: agents/judge
+    inputs: [annotator, reviewer]
+    output_schema:
+      verdict: string  # e.g. "accepted" | "rejected"
+      reason: string
+      evidence_refs: array
+
+skills:
+  - evidence-extractor
+  - json-output
+
+prompts:
+  system: prompts/system.md
+
+steps:
+  - run: annotator
+    on: input
+  - run: reviewer
+    on: annotator.output
+  - run: judge
+    on: [annotator.output, reviewer.output]

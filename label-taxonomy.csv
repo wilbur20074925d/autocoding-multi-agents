@@ -1,0 +1,41 @@
+tier1,tier2,tier3,description,example_utterance
+Cognitive,concept_exploration,ask,asking questions for learning or clarifying concepts,what is bloom taxonomy?
+Cognitive,concept_exploration,answer,answering questions for learning or clarifying concepts,
+Cognitive,concept_exploration,agree,agree with no explanation,I think we should choose option C
+Cognitive,concept_exploration,disagree,disagree with an answer,
+Cognitive,concept_exploration,give,provide information without asking,
+Cognitive,concept_exploration,build_on,agree with explanation,
+Cognitive,solution_development,ask,ask questions for developing solutions,
+Cognitive,solution_development,answer,answer questions for developing solutions,
+Cognitive,solution_development,agree,agree with an answer,
+Cognitive,solution_development,disagree,disagree with an answer,
+Cognitive,solution_development,give,provide information without asking for solution development,
+Cognitive,solution_development,build_on,agree with explanation,
+Metacognitive,planning,ask,asking questions about planning problem solving procedures,how should we solve this question
+Metacognitive,planning,answer,answering questions about planning the problem solving procedures,
+Metacognitive,planning,agree,agree on planning,
+Metacognitive,planning,disagree,disagree on planning,
+Metacognitive,planning,give,give input on planning,
+Metacognitive,evaluating,ask,asking questions about evaluating group solutions or outputs,do you think this solution is ok
+Metacognitive,evaluating,answer,answer about evaluating solutions,I think we should start from the multipl
+Metacognitive,evaluating,agree,agree with evaluation,yeah I think this solution looks great
+Metacognitive,evaluating,disagree,disagree with evaluation,
+Metacognitive,evaluating,give,give evaluation,This solution is pretty nice
+Metacognitive,monitoring,ask,asking questions about checking group progress,are we on the right track?
+Metacognitive,monitoring,answer,answer about progress,yes I think so
+Metacognitive,monitoring,agree,agree on progress,I think we should move faster the deadline
+Metacognitive,monitoring,disagree,disagree on progress,
+Metacognitive,monitoring,give,give input on progress,
+Coordinative,coordinate_participants,ask,ask questions about task allocation role assignment,who should do what?
+Coordinative,coordinate_participants,answer,answer about task allocation,
+Coordinative,coordinate_participants,give,give input on task allocation,
+Coordinative,coordinate_participants,agree,agree on allocation,
+Coordinative,coordinate_participants,disagree,disagree on allocation,
+Coordinative,coordinate_procedures,ask,ask questions about logistics technical settings,how should we share information?
+Coordinative,coordinate_procedures,answer,answer about procedures,
+Coordinative,coordinate_procedures,give,give input on procedures,
+Coordinative,coordinate_procedures,agree,agree on procedures,
+Coordinative,coordinate_procedures,disagree,disagree on procedures,
+Socio-emotional,emotional,,emotional expressions or reactions,
+Socio-emotional,encouragement,,encouragement or support,
+Socio-emotional,forming_sense_of,,forming sense of group or belonging,

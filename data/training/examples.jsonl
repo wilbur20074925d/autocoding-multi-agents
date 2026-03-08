@@ -1,0 +1,3 @@
+{"prompt": "what is bloom taxonomy?", "label": "Cognitive.concept_exploration.ask"}
+{"prompt": "how should we solve this question?", "label": "Metacognitive.planning.ask"}
+{"prompt": "who should do what?", "label": "Coordinative.coordinate_participants.ask"}

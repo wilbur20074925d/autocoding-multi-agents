@@ -106,6 +106,31 @@ def key_value_pairs(
     return body
 
 
+def format_prompt_received(prompt: str, *, max_len: int = 500) -> str:
+    """Format the initial user prompt for clear display (e.g. first message in thread)."""
+    text = truncate((prompt or "").strip(), max_len=max_len)
+    return section("Prompt received", text, use_blockquote=True)
+
+
+def format_final_answer_summary(final_labels: list[Any]) -> str:
+    """One-line summary of final labels for prominent display at top of Adjudicator message."""
+    if not final_labels:
+        return "**Final answer:** _No labels_"
+    parts = []
+    for item in final_labels:
+        if isinstance(item, dict):
+            label = item.get("label", item.get("span_ref", ""))
+            decision = item.get("decision", "")
+            if decision:
+                parts.append(f"{label} ({decision})")
+            else:
+                parts.append(str(label))
+        else:
+            parts.append(str(item))
+    line = " · ".join(parts)
+    return f"**Final answer:** {line}"
+
+
 def pipeline_result_discord(
     prompt: str,
     final_labels: list[Any],

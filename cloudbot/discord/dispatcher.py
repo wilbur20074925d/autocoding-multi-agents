@@ -22,6 +22,7 @@ from .format import (
     table_from_rows,
     key_value_pairs,
     truncate,
+    format_final_answer_summary,
 )
 from .pipeline_output import PipelineOutput
 
@@ -132,11 +133,13 @@ def _format_boundary_critic(data: dict[str, Any] | None) -> str:
 
 
 def _format_adjudicator(data: dict[str, Any] | None) -> str:
-    """Format Adjudicator output for Discord (final label and confidence)."""
+    """Format Adjudicator output for Discord (final answer summary + table + uncertain/retry)."""
     if not data:
-        return section("Adjudicator", "_No output_")
+        return section("⚖ Adjudicator", "_No output_")
     parts = []
     final_labels = data.get("final_labels") or []
+    # Prominent one-line summary at top
+    parts.append(format_final_answer_summary(final_labels))
     if final_labels:
         rows = []
         for i, item in enumerate(final_labels):
@@ -148,9 +151,9 @@ def _format_adjudicator(data: dict[str, Any] | None) -> str:
                 ])
             else:
                 rows.append([str(item), "", ""])
-        parts.append(table_from_rows(["Label", "Decision", "Rationale"], rows, title="Final labels"))
+        parts.append(table_from_rows(["Label", "Decision", "Rationale"], rows, title="Details"))
     else:
-        parts.append(section("Final labels", "_None_"))
+        parts.append(section("Details", "_None_"))
     uncertain = data.get("uncertain") or []
     if uncertain:
         parts.append(bullet_list([str(u)[:100] for u in uncertain], header="Uncertain"))
@@ -165,7 +168,8 @@ def _format_adjudicator(data: dict[str, Any] | None) -> str:
                 title="Retry",
             )
         )
-    return "\n\n".join(parts) if parts else section("Adjudicator", "_No output_")
+    body = "\n\n".join(parts) if parts else "_No output_"
+    return section("⚖ Adjudicator", body)
 
 
 def prepare_four_bot_messages(

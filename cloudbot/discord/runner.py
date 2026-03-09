@@ -5,8 +5,10 @@ Flow:
   Controller receives "Label this prompt..." → run pipeline → send_as_bot(role)
     → SignalBot.send() | LabelBot.send() | CriticBot.send() | JudgeBot.send()
 
-Requires discord.py and 5 bot tokens in env: CONTROLLER_TOKEN, SIGNAL_BOT_TOKEN,
-LABEL_BOT_TOKEN, CRITIC_BOT_TOKEN, JUDGE_BOT_TOKEN.
+Requires discord.py and 5 bot tokens in env:
+  DISCORD_CONTROLLER_TOKEN, DISCORD_SIGNAL_BOT_TOKEN, DISCORD_LABEL_BOT_TOKEN,
+  DISCORD_CRITIC_BOT_TOKEN, DISCORD_JUDGE_BOT_TOKEN.
+Each role sends with its own bot client (Signal, Label, Critic, Judge).
 """
 
 from __future__ import annotations
@@ -32,12 +34,13 @@ LABEL_PROMPT_TRIGGER = "label this prompt"
 
 
 def _get_tokens() -> dict[str, str]:
+    """Read tokens from env. Each role uses its own bot client."""
     return {
-        "controller": os.environ.get("CONTROLLER_TOKEN", "").strip(),
-        SIGNAL_EXTRACTOR: os.environ.get("SIGNAL_BOT_TOKEN", "").strip(),
-        LABEL_CODER: os.environ.get("LABEL_BOT_TOKEN", "").strip(),
-        BOUNDARY_CRITIC: os.environ.get("CRITIC_BOT_TOKEN", "").strip(),
-        ADJUDICATOR: os.environ.get("JUDGE_BOT_TOKEN", "").strip(),
+        "controller": os.environ.get("DISCORD_CONTROLLER_TOKEN", os.environ.get("CONTROLLER_TOKEN", "")).strip(),
+        SIGNAL_EXTRACTOR: os.environ.get("DISCORD_SIGNAL_BOT_TOKEN", "").strip(),
+        LABEL_CODER: os.environ.get("DISCORD_LABEL_BOT_TOKEN", "").strip(),
+        BOUNDARY_CRITIC: os.environ.get("DISCORD_CRITIC_BOT_TOKEN", "").strip(),
+        ADJUDICATOR: os.environ.get("DISCORD_JUDGE_BOT_TOKEN", "").strip(),
     }
 
 
@@ -104,12 +107,13 @@ class ControllerBot(discord.Client):
             include_prompt_in_first=True,
         )
 
+        # Each role sends with its own bot client (SignalBot, LabelBot, CriticBot, JudgeBot)
         for role_id, text in messages:
             bot = self.role_to_bot.get(role_id)
             if bot is not None:
                 await bot.send_to_channel(channel_id, text)
             else:
-                # Fallback: send from controller (single-bot mode)
+                # Fallback only if this role has no token (missing DISCORD_*_BOT_TOKEN)
                 await message.channel.send(f"**[{role_id}]**\n{text}")
 
 
@@ -123,7 +127,7 @@ async def run_all_bots() -> None:
     tokens = _get_tokens()
     controller_token = tokens.pop("controller")
     if not controller_token:
-        raise SystemExit("Set CONTROLLER_TOKEN in the environment.")
+        raise SystemExit("Set DISCORD_CONTROLLER_TOKEN (or CONTROLLER_TOKEN) in the environment.")
 
     role_ids = [SIGNAL_EXTRACTOR, LABEL_CODER, BOUNDARY_CRITIC, ADJUDICATOR]
     display_bots: list[DisplayBot] = []
@@ -133,8 +137,11 @@ async def run_all_bots() -> None:
             print(f"Warning: no token for {role_id}; that bot will not send.")
         display_bots.append(DisplayBot(role_id=role_id, intents=discord.Intents.default()))
 
-    # Only register bots that have tokens (so we don't send from unconnected clients)
+    # Only register bots that have tokens — each role sends with its own client
     role_to_bot = {b.role_id: b for b in display_bots if tokens.get(b.role_id, "").strip()}
+    for rid in role_ids:
+        if rid not in role_to_bot:
+            print(f"  Missing token for {rid}; that message will fallback to Controller.")
     intents = discord.Intents.default()
     intents.message_content = True  # required to read message content
     controller = ControllerBot(

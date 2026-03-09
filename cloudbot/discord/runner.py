@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from typing import Any
 
 import discord
@@ -42,6 +43,22 @@ from .format import format_prompt_received
 
 # Trigger phrase (case-insensitive)
 LABEL_PROMPT_TRIGGER = "label this prompt"
+
+# Discord mention pattern: <@USER_ID> or <@!USER_ID>
+_MENTION_PATTERN = re.compile(r"<@!?\d+>")
+
+
+def _strip_mentions_for_prompt(content: str, message: Message) -> str:
+    """Remove Discord user mentions from message content so the pipeline gets clean text."""
+    text = (content or "").strip()
+    # Optionally replace with display name so "Bob what a nice day!"; otherwise strip to get "what a nice day!"
+    mention_ids = {int(m) for m in re.findall(r"<@!?(\d+)>", text)}
+    for user in getattr(message, "mentions", []):
+        if user.id in mention_ids:
+            text = re.sub(rf"<@!?{user.id}>", f"@{user.display_name}", text)
+    # Remove any remaining unresolved mentions (e.g. user left server)
+    text = _MENTION_PATTERN.sub("", text)
+    return " ".join(text.split()).strip()
 
 # Display names when using webhook fallback (one bot, four visible roles)
 ROLE_DISPLAY_NAMES = {
@@ -135,7 +152,7 @@ class ControllerBot(discord.Client):
         if LABEL_PROMPT_TRIGGER not in content.lower():
             return
 
-        prompt = content
+        prompt = _strip_mentions_for_prompt(content, message)
         channel_id = message.channel.id
 
         # Display the prompt received first (from Controller)

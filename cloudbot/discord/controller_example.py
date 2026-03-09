@@ -1,14 +1,9 @@
 """
-Example: Main controller for 1 orchestrator + 4 display bots.
+Main controller for 1 orchestrator + 4 display bots.
 
-This module shows how to wire:
-  - Receive Discord message (user prompt)
-  - Run OpenClaw autocoding workflow (placeholder here; replace with your runtime)
-  - Dispatch structured output to 4 Discord bot identities
-
-You need to implement:
-  - run_autocoding_pipeline(prompt, context?) -> pipeline_output
-  - send_as_bot(role_id, channel_id, content) -> None (post with the right token)
+  - Receives Discord message (user prompt)
+  - Runs autocoding pipeline (cloudbot.pipeline by default; or pass run_pipeline)
+  - Dispatches structured output to 4 Discord bot identities
 """
 
 from __future__ import annotations
@@ -18,27 +13,24 @@ from typing import Any, Callable
 
 from .dispatcher import prepare_four_bot_messages
 
+try:
+    from cloudbot.pipeline import run_autocoding_pipeline as _default_pipeline
+except ImportError:
+    try:
+        from pipeline import run_autocoding_pipeline as _default_pipeline
+    except ImportError:
+        _default_pipeline = None
+
 
 def run_autocoding_pipeline_placeholder(
     prompt: str,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """
-    Placeholder for OpenClaw autocoding workflow.
-
-    Replace with your actual runtime call that runs:
-      signal_extractor -> label_coder -> boundary_critic -> label_coder (revision) -> adjudicator
-    and returns a dict with keys: signal_extractor, label_coder, boundary_critic, adjudicator
-    (and optionally prompt, context).
-    """
+    """Placeholder when pipeline package is not used. Prefer run_autocoding_pipeline from cloudbot.pipeline."""
     return {
         "prompt": prompt,
         "context": context or {},
-        "signal_extractor": {
-            "evidence_spans": [],
-            "candidate_signals": [],
-            "ambiguity": [],
-        },
+        "signal_extractor": {"evidence_spans": [], "candidate_signals": [], "ambiguity": []},
         "label_coder": {"labels": [], "uncertain": [], "revision_note": None},
         "boundary_critic": {"challenges": [], "request_missing_evidence": []},
         "adjudicator": {"final_labels": [], "uncertain": [], "retry": None},
@@ -67,7 +59,7 @@ async def handle_discord_message(
     Returns:
         List of (role_id, content) that were (or would be) posted.
     """
-    run_pipeline = run_pipeline or run_autocoding_pipeline_placeholder
+    run_pipeline = run_pipeline or _default_pipeline or run_autocoding_pipeline_placeholder
     pipeline_output = run_pipeline(prompt, context)
     if "prompt" not in pipeline_output:
         pipeline_output["prompt"] = prompt

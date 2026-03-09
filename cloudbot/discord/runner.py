@@ -44,20 +44,22 @@ from .format import format_prompt_received
 # Trigger phrase (case-insensitive)
 LABEL_PROMPT_TRIGGER = "label this prompt"
 
-# Discord mention pattern: <@USER_ID> or <@!USER_ID>
-_MENTION_PATTERN = re.compile(r"<@!?\d+>")
+# Discord mention patterns: user <@ID> / <@!ID>, role <@&ID>
+_USER_MENTION_PATTERN = re.compile(r"<@!?\d+>")
+_ROLE_MENTION_PATTERN = re.compile(r"<@&\d+>")
 
 
 def _strip_mentions_for_prompt(content: str, message: Message) -> str:
-    """Remove Discord user mentions from message content so the pipeline gets clean text."""
+    """Remove Discord user and role mentions from message content so the pipeline gets clean text."""
     text = (content or "").strip()
-    # Optionally replace with display name so "Bob what a nice day!"; otherwise strip to get "what a nice day!"
+    # Replace user mentions with @display_name when we can resolve them
     mention_ids = {int(m) for m in re.findall(r"<@!?(\d+)>", text)}
     for user in getattr(message, "mentions", []):
         if user.id in mention_ids:
             text = re.sub(rf"<@!?{user.id}>", f"@{user.display_name}", text)
-    # Remove any remaining unresolved mentions (e.g. user left server)
-    text = _MENTION_PATTERN.sub("", text)
+    # Remove any remaining user mentions (e.g. user left server) and all role mentions <@&id>
+    text = _USER_MENTION_PATTERN.sub("", text)
+    text = _ROLE_MENTION_PATTERN.sub("", text)
     return " ".join(text.split()).strip()
 
 # Display names when using webhook fallback (one bot, four visible roles)

@@ -5,10 +5,16 @@ Flow:
   Controller receives "Label this prompt..." → run pipeline → send_as_bot(role)
     → SignalBot.send() | LabelBot.send() | CriticBot.send() | JudgeBot.send()
 
-Requires discord.py and 5 bot tokens in env:
-  DISCORD_CONTROLLER_TOKEN, DISCORD_SIGNAL_BOT_TOKEN, DISCORD_LABEL_BOT_TOKEN,
+If you set 5 bot tokens, each role sends with its own bot. If only the Controller
+token is set, messages are sent via a channel webhook so they appear as four
+different roles (Signal Extractor, Label Coder, Boundary Critic, Adjudicator).
+Webhook fallback requires the bot to have "Manage Webhooks" in the channel.
+
+Requires discord.py and at least:
+  DISCORD_CONTROLLER_TOKEN (or CONTROLLER_TOKEN)
+Optional (for separate bot identities per role):
+  DISCORD_SIGNAL_BOT_TOKEN, DISCORD_LABEL_BOT_TOKEN,
   DISCORD_CRITIC_BOT_TOKEN, DISCORD_JUDGE_BOT_TOKEN.
-Each role sends with its own bot client (Signal, Label, Critic, Judge).
 """
 
 from __future__ import annotations
@@ -19,6 +25,11 @@ from typing import Any
 
 import discord
 from discord import Message
+
+try:
+    from discord import Webhook
+except ImportError:
+    Webhook = None  # type: ignore[misc, assignment]
 
 from .dispatcher import (
     ADJUDICATOR,
@@ -32,6 +43,18 @@ from .format import format_prompt_received
 # Trigger phrase (case-insensitive)
 LABEL_PROMPT_TRIGGER = "label this prompt"
 
+# Display names when using webhook fallback (one bot, four visible roles)
+ROLE_DISPLAY_NAMES = {
+    SIGNAL_EXTRACTOR: "Signal Extractor",
+    LABEL_CODER: "Label Coder",
+    BOUNDARY_CRITIC: "Boundary Critic",
+    ADJUDICATOR: "Adjudicator",
+}
+
+# One webhook per channel for webhook fallback (channel_id -> Webhook)
+_channel_webhook_cache: dict[int, Any] = {}
+WEBHOOK_NAME = "Autocoding"
+
 
 def _get_tokens() -> dict[str, str]:
     """Read tokens from env. Each role uses its own bot client."""
@@ -42,6 +65,31 @@ def _get_tokens() -> dict[str, str]:
         BOUNDARY_CRITIC: os.environ.get("DISCORD_CRITIC_BOT_TOKEN", "").strip(),
         ADJUDICATOR: os.environ.get("DISCORD_JUDGE_BOT_TOKEN", "").strip(),
     }
+
+
+async def get_or_create_pipeline_webhook(channel: discord.abc.MessageableChannel) -> Any:
+    """Get or create a webhook for this channel so we can send as different role names. Returns None if not possible."""
+    if not hasattr(channel, "id"):
+        return None
+    cid = int(channel.id)
+    if cid in _channel_webhook_cache:
+        return _channel_webhook_cache[cid]
+    try:
+        if hasattr(channel, "webhooks"):
+            webhooks = await channel.webhooks()
+            for wh in webhooks:
+                if wh.name == WEBHOOK_NAME:
+                    _channel_webhook_cache[cid] = wh
+                    return wh
+        if hasattr(channel, "create_webhook"):
+            wh = await channel.create_webhook(name=WEBHOOK_NAME)
+            _channel_webhook_cache[cid] = wh
+            return wh
+    except discord.Forbidden:
+        print("Warning: bot needs 'Manage Webhooks' to post as four roles with one token.")
+    except Exception as e:
+        print(f"Warning: could not get/create webhook: {e}")
+    return None
 
 
 class DisplayBot(discord.Client):
@@ -107,14 +155,19 @@ class ControllerBot(discord.Client):
             include_prompt_in_first=True,
         )
 
-        # Each role sends with its own bot client (SignalBot, LabelBot, CriticBot, JudgeBot)
+        # Each role sends with its own bot client, or via webhook so they appear as four different senders
         for role_id, text in messages:
             bot = self.role_to_bot.get(role_id)
             if bot is not None:
                 await bot.send_to_channel(channel_id, text)
             else:
-                # Fallback only if this role has no token (missing DISCORD_*_BOT_TOKEN)
-                await message.channel.send(f"**[{role_id}]**\n{text}")
+                # No separate bot for this role: send via webhook with role display name (four visible roles, one token)
+                webhook = await get_or_create_pipeline_webhook(message.channel)
+                display_name = ROLE_DISPLAY_NAMES.get(role_id, role_id)
+                if webhook is not None:
+                    await webhook.send(content=text, username=display_name)
+                else:
+                    await message.channel.send(f"**[{display_name}]**\n{text}")
 
 
 async def run_all_bots() -> None:
@@ -139,9 +192,11 @@ async def run_all_bots() -> None:
 
     # Only register bots that have tokens — each role sends with its own client
     role_to_bot = {b.role_id: b for b in display_bots if tokens.get(b.role_id, "").strip()}
+    if len(role_to_bot) < 4:
+        print("  Using webhook fallback: the 4 roles will appear as Signal Extractor, Label Coder, Boundary Critic, Adjudicator (bot needs Manage Webhooks).")
     for rid in role_ids:
         if rid not in role_to_bot:
-            print(f"  Missing token for {rid}; that message will fallback to Controller.")
+            print(f"  Missing token for {rid}; will send via webhook as '{ROLE_DISPLAY_NAMES.get(rid, rid)}'.")
     intents = discord.Intents.default()
     intents.message_content = True  # required to read message content
     controller = ControllerBot(

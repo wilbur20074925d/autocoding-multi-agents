@@ -18,13 +18,15 @@ Flow:
 Start with: python -m cloudbot.run_controller
   (or from cloudbot/: python run_controller.py)
 
-Requires 5 bot tokens in env:
-  CONTROLLER_TOKEN, SIGNAL_BOT_TOKEN, LABEL_BOT_TOKEN, CRITIC_BOT_TOKEN, JUDGE_BOT_TOKEN
+Minimum: set CONTROLLER_TOKEN (or DISCORD_CONTROLLER_TOKEN). With only that token,
+the 4 roles are sent via a channel webhook so they appear as different senders
+(Signal Extractor, Label Coder, etc.); the bot needs "Manage Webhooks" in the channel.
 
-After startup, Discord shows 5 bots. When a user sends:
-  "Label this prompt: <text>"
-the Controller runs the pipeline and the 4 display bots post in order:
-  Signal Extractor → Label Coder → Boundary Critic → Adjudicator.
+Optional (5 separate bot accounts): also set DISCORD_SIGNAL_BOT_TOKEN,
+DISCORD_LABEL_BOT_TOKEN, DISCORD_CRITIC_BOT_TOKEN, DISCORD_JUDGE_BOT_TOKEN.
+
+When a user sends "Label this prompt: <text>", the pipeline runs and the 4
+role messages post in order: Signal Extractor → Label Coder → Boundary Critic → Adjudicator.
 """
 
 from __future__ import annotations

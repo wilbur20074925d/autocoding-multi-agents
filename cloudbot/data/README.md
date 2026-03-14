@@ -2,15 +2,17 @@
 
 ## Overview
 
-- **Training data**: User prompts with **correct labels** (ground truth). Use these to calibrate or validate the autocoding pipeline.
-- **Testing data**: Prompts you send through **chat with the AI** for final evaluation. The AI runs the pipeline (Signal Extractor → Label Coder → Boundary Critic → Adjudicator) and you compare outputs to your held-out labels or judge quality.
+- **Golden labels are primary.** Human-coder labels (HC1, HC2) or any explicitly provided gold labels are the **main source of truth**. The pipeline should align outputs to golden labels when they are available.
+- **Training data is auxiliary (辅助).** Training examples are for **calibration and context only**—to help agents recognize patterns and boundaries. They do not replace golden labels. Use training to inform extraction and coding; when a golden label is provided for the current prompt, that golden label takes precedence.
+- **Testing data**: Prompts you send through **chat with the AI** for final evaluation. The AI runs the pipeline (Signal Extractor → Label Coder → Boundary Critic → Adjudicator) and you compare outputs to your held-out golden labels or judge quality.
 
 ## Folder structure
 
 | Folder       | Purpose |
 |-------------|---------|
-| `training/` | Labeled prompts (user prompt + right label). Your gold standard. |
+| `training/` | Labeled prompts (user prompt + HC1/HC2 or label). **Golden labels** from these are primary when provided; the set is also used as **auxiliary** calibration. |
 | `testing/`  | Optional: store testing prompts here; you send them in chat for evaluation. |
+| (this folder) | **golden-labels.md** — precise criteria for golden labels (primary) and how to use training (auxiliary). |
 
 ## Training data format
 
@@ -90,6 +92,7 @@ You can say for example:
 
 ## Quick reference
 
+- **Golden labels (primary) and precise criteria:** **cloudbot/data/golden-labels.md**
 - Label taxonomy: **cloudbot/data/label-taxonomy.csv** (or `label-taxonomy.csv` in this folder)
 - Pipeline order: **FLOW.md**
 - Skills: `.cursor/skills/signal-extractor/`, `label-coder/`, `boundary-critic/`, `adjudicator/`

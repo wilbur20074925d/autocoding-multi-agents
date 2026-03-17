@@ -53,6 +53,15 @@ TRAINING_TRIGGER_PHRASES = (
     "refine skills",
 )
 
+# Testing/evaluation trigger: user uploads testing.csv and asks to evaluate accuracy.
+TESTING_TRIGGER_PHRASES = (
+    "test this csv",
+    "testing csv",
+    "evaluate this csv",
+    "run testing",
+    "evaluate accuracy",
+)
+
 # Discord mention patterns: user <@ID> / <@!ID>, role <@&ID>
 _USER_MENTION_PATTERN = re.compile(r"<@!?\d+>")
 _ROLE_MENTION_PATTERN = re.compile(r"<@&\d+>")
@@ -173,6 +182,11 @@ class ControllerBot(discord.Client):
         # --- Training / reflection mode (CSV attachment) ---
         if any(p in lower for p in TRAINING_TRIGGER_PHRASES):
             await self._handle_training_csv(message)
+            return
+
+        # --- Testing / evaluation mode (CSV attachment) ---
+        if any(p in lower for p in TESTING_TRIGGER_PHRASES):
+            await self._handle_testing_csv(message)
             return
 
         # --- Normal labeling mode ---
@@ -363,6 +377,124 @@ class ControllerBot(discord.Client):
             await message.channel.send(file=discord.File(str(out_warn)))
         except Exception as e:
             await message.channel.send(f"Could not upload files (check bot permissions): {e}")
+
+    async def _handle_testing_csv(self, message: Message) -> None:
+        """
+        Accept a CSV attachment (testing set), evaluate row-by-row against HC1/HC2,
+        and report whether the final prediction matches any human label.
+        """
+        attachments = list(getattr(message, "attachments", []) or [])
+        csv_attachments = [a for a in attachments if (a.filename or "").lower().endswith(".csv")]
+        if not csv_attachments:
+            await message.channel.send(
+                "No CSV attachment found. Please upload a `.csv` (e.g. `testing.csv`) and send a message like "
+                "`test this csv`."
+            )
+            return
+
+        att = csv_attachments[0]
+        try:
+            data = await att.read()
+        except Exception as e:
+            await message.channel.send(f"Failed to read attachment: {e}")
+            return
+
+        # Save uploaded CSV as a testing file (optional, for auditing)
+        try:
+            from pathlib import Path
+
+            repo_root = Path(__file__).resolve().parents[2]
+            testing_path = repo_root / "cloudbot" / "data" / "testing" / "testing.csv"
+            testing_path.parent.mkdir(parents=True, exist_ok=True)
+            testing_path.write_bytes(data)
+        except Exception as e:
+            await message.channel.send(f"Failed to write testing.csv on server: {e}")
+            return
+
+        await message.channel.send(
+            f"Testing CSV saved as `{testing_path}`. Processing row-by-row and checking predictions vs HC1/HC2…"
+        )
+
+        try:
+            from cloudbot.data.training.load_training_csv import load_training_csv
+            from cloudbot.eval.driver import extract_predicted_label
+            from cloudbot.eval.compare import compare_one
+            from cloudbot.eval.normalize import normalize_human_labels
+            from cloudbot.eval.taxonomy import build_tier2_to_tier1, load_taxonomy_rows
+            from cloudbot.pipeline.run_pipeline import run_autocoding_pipeline
+
+            taxonomy_path = repo_root / "cloudbot" / "data" / "label-taxonomy.csv"
+            taxonomy_rows = load_taxonomy_rows(taxonomy_path)
+            tier2_to_tier1 = build_tier2_to_tier1(taxonomy_rows)
+            examples = load_training_csv(testing_path)
+        except Exception as e:
+            await message.channel.send(f"Failed to load testing data or taxonomy: {e}")
+            return
+
+        total = 0
+        correct = 0
+        incorrect = 0
+
+        for ex in examples:
+            prompt = (ex.get("prompt") or "").strip()
+            if not prompt:
+                continue
+            total += 1
+
+            hc1 = ex.get("hc1") or []
+            hc2 = ex.get("hc2") or []
+            p1, _ = normalize_human_labels(list(hc1), tier2_to_tier1=tier2_to_tier1)
+            p2, _ = normalize_human_labels(list(hc2), tier2_to_tier1=tier2_to_tier1)
+
+            # golden = union of hc1+hc2 patterns
+            seen = set()
+            golden_patterns = []
+            for p in (p1 + p2):
+                k = (p.tier1, p.tier2, p.tier3)
+                if k in seen:
+                    continue
+                seen.add(k)
+                golden_patterns.append(p)
+            if not golden_patterns:
+                await message.channel.send(
+                    f"**Row {total}** ⚪ no HC1/HC2 labels; skipping.\n"
+                    f"- Prompt: `{prompt[:180] + ('…' if len(prompt) > 180 else '')}`"
+                )
+                continue
+
+            pipeline_out = run_autocoding_pipeline(
+                prompt,
+                context={k: ex.get(k) for k in ("group", "timestamp-mm", "people", "context") if ex.get(k)},
+            )
+            predicted = extract_predicted_label(pipeline_out)
+            comp = compare_one(predicted, golden_patterns)
+
+            short_prompt = prompt[:180] + ("…" if len(prompt) > 180 else "")
+            if comp.is_match:
+                correct += 1
+                await message.channel.send(
+                    f"**Row {total}** ✅ correct\n"
+                    f"- Prompt: `{short_prompt}`\n"
+                    f"- Predicted: `{predicted}` (matches HC1/HC2)"
+                )
+            else:
+                incorrect += 1
+                await message.channel.send(
+                    f"**Row {total}** ❌ incorrect\n"
+                    f"- Prompt: `{short_prompt}`\n"
+                    f"- Predicted: `{predicted}`\n"
+                    f"- Note: does not match HC1 or HC2 (after normalization)."
+                )
+
+        if total == 0:
+            await message.channel.send("Testing CSV has no usable rows (no prompts).")
+            return
+
+        accuracy = (correct / total) * 100.0
+        await message.channel.send(
+            f"Testing complete: **{correct}/{total}** correct, **{incorrect}** incorrect "
+            f"(accuracy ≈ **{accuracy:.1f}%**; HC1/HC2 union as gold)."
+        )
 
 
 async def run_all_bots() -> None:

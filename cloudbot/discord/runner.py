@@ -85,9 +85,17 @@ WEBHOOK_NAME = "Autocoding"
 
 
 def _get_tokens() -> dict[str, str]:
-    """Read tokens from env. Each role uses its own bot client."""
+    """Read tokens from env. Each role uses its own bot client.
+
+    Backwards-compatible env var names:
+    - Controller: DISCORD_CONTROLLER_TOKEN, CONTROLLER_TOKEN, DISCORD_CONTROLLER_BOT_TOKEN
+    """
     return {
-        "controller": os.environ.get("DISCORD_CONTROLLER_TOKEN", os.environ.get("CONTROLLER_TOKEN", "")).strip(),
+        "controller": (
+            os.environ.get("DISCORD_CONTROLLER_TOKEN")
+            or os.environ.get("CONTROLLER_TOKEN")
+            or os.environ.get("DISCORD_CONTROLLER_BOT_TOKEN", "")
+        ).strip(),
         SIGNAL_EXTRACTOR: os.environ.get("DISCORD_SIGNAL_BOT_TOKEN", "").strip(),
         LABEL_CODER: os.environ.get("DISCORD_LABEL_BOT_TOKEN", "").strip(),
         BOUNDARY_CRITIC: os.environ.get("DISCORD_CRITIC_BOT_TOKEN", "").strip(),
@@ -367,7 +375,9 @@ async def run_all_bots() -> None:
     tokens = _get_tokens()
     controller_token = tokens.pop("controller")
     if not controller_token:
-        raise SystemExit("Set DISCORD_CONTROLLER_TOKEN (or CONTROLLER_TOKEN) in the environment.")
+        raise SystemExit(
+            "Set DISCORD_CONTROLLER_TOKEN (or CONTROLLER_TOKEN / DISCORD_CONTROLLER_BOT_TOKEN) in the environment."
+        )
 
     role_ids = [SIGNAL_EXTRACTOR, LABEL_CODER, BOUNDARY_CRITIC, ADJUDICATOR]
     display_bots: list[DisplayBot] = []

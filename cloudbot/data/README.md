@@ -90,6 +90,26 @@ You can say for example:
 - "I have testing data in `cloudbot/data/testing/prompts.jsonl`. Process each and output final labels so I can evaluate."
 - "Attached is a CSV of prompts. Run the pipeline on each row one by one; complete each before starting the next."
 
+## Semi-automatic skill refinement (方式 B)
+
+When your pipeline output differs from human labels (HC1/HC2), you can generate a **review-required** suggestion file that proposes what to add to SKILL documents (e.g. extra boundary reminders, minimal-pair examples, few-shot candidates).
+
+- **Generator script**: `cloudbot/eval/run_reflection_suggestions.py`
+- **Outputs**:
+  - `suggested_skill_updates.md` (grouped by target SKILL files; copy/paste after review)
+  - `reflection_log.jsonl` (structured audit log)
+  - `normalization_warnings.txt` (if any labels could not be normalized)
+
+Example:
+
+```bash
+python cloudbot/eval/run_reflection_suggestions.py \
+  --training-csv cloudbot/data/training/training.csv \
+  --golden-strategy union \
+  --out-md suggested_skill_updates.md \
+  --out-jsonl reflection_log.jsonl
+```
+
 ## Quick reference
 
 - **Golden labels (primary) and precise criteria:** **cloudbot/data/golden-labels.md**

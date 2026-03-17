@@ -44,6 +44,15 @@ from .format import format_prompt_received
 # Trigger phrase (case-insensitive)
 LABEL_PROMPT_TRIGGER = "label this prompt"
 
+# Training/reflection trigger: user uploads training.csv and asks to learn/refine.
+TRAINING_TRIGGER_PHRASES = (
+    "update training csv",
+    "train on this csv",
+    "learn from this csv",
+    "run reflection",
+    "refine skills",
+)
+
 # Discord mention patterns: user <@ID> / <@!ID>, role <@&ID>
 _USER_MENTION_PATTERN = re.compile(r"<@!?\d+>")
 _ROLE_MENTION_PATTERN = re.compile(r"<@&\d+>")
@@ -151,7 +160,15 @@ class ControllerBot(discord.Client):
         if message.author.bot:
             return
         content = (message.content or "").strip()
-        if LABEL_PROMPT_TRIGGER not in content.lower():
+        lower = content.lower()
+
+        # --- Training / reflection mode (CSV attachment) ---
+        if any(p in lower for p in TRAINING_TRIGGER_PHRASES):
+            await self._handle_training_csv(message)
+            return
+
+        # --- Normal labeling mode ---
+        if LABEL_PROMPT_TRIGGER not in lower:
             return
 
         prompt = _strip_mentions_for_prompt(content, message)
@@ -187,6 +204,157 @@ class ControllerBot(discord.Client):
                     await webhook.send(content=text, username=display_name)
                 else:
                     await message.channel.send(f"**[{display_name}]**\n{text}")
+
+    async def _handle_training_csv(self, message: Message) -> None:
+        """
+        Accept a CSV attachment, overwrite cloudbot/data/training/training.csv,
+        then process line-by-line and finally generate suggested update files.
+        """
+        attachments = list(getattr(message, "attachments", []) or [])
+        csv_attachments = [a for a in attachments if (a.filename or "").lower().endswith(".csv")]
+        if not csv_attachments:
+            await message.channel.send(
+                "No CSV attachment found. Please upload a `.csv` (e.g. `training.csv`) and send a message like "
+                "`update training csv`."
+            )
+            return
+
+        att = csv_attachments[0]
+        try:
+            data = await att.read()
+        except Exception as e:
+            await message.channel.send(f"Failed to read attachment: {e}")
+            return
+
+        # Save uploaded CSV as the canonical training file
+        try:
+            from pathlib import Path
+
+            repo_root = Path(__file__).resolve().parents[2]
+            training_path = repo_root / "cloudbot" / "data" / "training" / "training.csv"
+            training_path.parent.mkdir(parents=True, exist_ok=True)
+            training_path.write_bytes(data)
+        except Exception as e:
+            await message.channel.send(f"Failed to write training.csv on server: {e}")
+            return
+
+        await message.channel.send(
+            f"Training CSV saved as `{training_path}`. Processing row-by-row and generating refinement suggestions…"
+        )
+
+        # Run evaluation + reflection and stream outcomes.
+        try:
+            from cloudbot.data.training.load_training_csv import load_training_csv
+            from cloudbot.eval.driver import (
+                extract_predicted_label,
+            )
+            from cloudbot.eval.compare import compare_one
+            from cloudbot.eval.normalize import normalize_human_labels
+            from cloudbot.eval.reflection import reflect_mismatch
+            from cloudbot.eval.taxonomy import build_tier2_to_tier1, load_taxonomy_rows
+            from cloudbot.pipeline.run_pipeline import run_autocoding_pipeline
+
+            taxonomy_path = repo_root / "cloudbot" / "data" / "label-taxonomy.csv"
+            taxonomy_rows = load_taxonomy_rows(taxonomy_path)
+            tier2_to_tier1 = build_tier2_to_tier1(taxonomy_rows)
+
+            examples = load_training_csv(training_path)
+        except Exception as e:
+            await message.channel.send(f"Failed to load training/taxonomy: {e}")
+            return
+
+        mismatches = []
+        normalization_warnings: list[str] = []
+        processed = 0
+        matched = 0
+
+        # Post results row-by-row (learning outcome + refinement)
+        for ex in examples:
+            prompt = (ex.get("prompt") or "").strip()
+            if not prompt:
+                continue
+            processed += 1
+
+            hc1 = ex.get("hc1") or []
+            hc2 = ex.get("hc2") or []
+            p1, w1 = normalize_human_labels(list(hc1), tier2_to_tier1=tier2_to_tier1)
+            p2, w2 = normalize_human_labels(list(hc2), tier2_to_tier1=tier2_to_tier1)
+            normalization_warnings.extend(w1 + w2)
+
+            # golden = union of hc1+hc2 patterns
+            seen = set()
+            golden_patterns = []
+            for p in (p1 + p2):
+                k = (p.tier1, p.tier2, p.tier3)
+                if k in seen:
+                    continue
+                seen.add(k)
+                golden_patterns.append(p)
+            if not golden_patterns:
+                continue
+
+            pipeline_out = run_autocoding_pipeline(
+                prompt,
+                context={k: ex.get(k) for k in ("group", "timestamp-mm", "people", "context") if ex.get(k)},
+            )
+            predicted = extract_predicted_label(pipeline_out)
+            comp = compare_one(predicted, golden_patterns)
+            if comp.is_match:
+                matched += 1
+                await message.channel.send(
+                    f"**Row {processed}** ✅ match\n"
+                    f"- Prompt: `{prompt[:180] + ('…' if len(prompt) > 180 else '')}`\n"
+                    f"- Predicted: `{predicted}`"
+                )
+                continue
+
+            item = reflect_mismatch(
+                prompt=prompt,
+                comparison=comp,
+                context_metadata={k: ex.get(k) for k in ("group", "timestamp-mm", "people", "context") if ex.get(k)},
+            )
+            mismatches.append(item)
+
+            # “learning outcome” = mismatch summary + which role files to refine
+            targets = ", ".join(f"`{t}`" for t in item.target_skill_files)
+            await message.channel.send(
+                f"**Row {processed}** ❌ mismatch (`{item.mismatch_type}`)\n"
+                f"- Prompt: `{prompt[:180] + ('…' if len(prompt) > 180 else '')}`\n"
+                f"- Predicted: `{item.predicted}`\n"
+                f"- Golden: `{', '.join(item.golden)}`\n"
+                f"- Reason: {item.reason}\n"
+                f"- Refinement targets: {targets}"
+            )
+
+        # Write artifacts + upload
+        try:
+            from cloudbot.eval.driver import write_outputs
+
+            out_md = repo_root / "suggested_skill_updates.md"
+            out_jsonl = repo_root / "reflection_log.jsonl"
+            out_warn = repo_root / "normalization_warnings.txt"
+            write_outputs(
+                repo_root=repo_root,
+                mismatches=mismatches,
+                normalization_warnings=sorted(set(normalization_warnings)),
+                out_md=out_md,
+                out_jsonl=out_jsonl,
+                out_warnings=out_warn,
+            )
+        except Exception as e:
+            await message.channel.send(f"Failed to write output files: {e}")
+            return
+
+        await message.channel.send(
+            f"Done. Processed **{processed}** rows: **{matched}** match, **{len(mismatches)}** mismatch.\n"
+            "Uploading `suggested_skill_updates.md` and `normalization_warnings.txt`…"
+        )
+
+        try:
+            await message.channel.send(file=discord.File(str(out_md)))
+            await message.channel.send(file=discord.File(str(out_warn)))
+        except Exception as e:
+            await message.channel.send(f"Could not upload files (check bot permissions): {e}")
 
 
 async def run_all_bots() -> None:

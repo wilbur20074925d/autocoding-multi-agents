@@ -7,3 +7,9 @@ __pycache__/
 venv/
 *.egg-info/
 .eggs/
+cloudbot/eval/__pycache__/
+
+# Eval/reflection outputs (review artifacts)
+suggested_skill_updates.md
+reflection_log.jsonl
+normalization_warnings.txt

@@ -55,6 +55,53 @@ def _format_context(context: dict[str, Any] | None) -> str | None:
     return key_value_pairs(pairs, title="Context")
 
 
+def _parse_label_struct(label: Any) -> tuple[str, str, str]:
+    """
+    Normalize a label into (main_label, sublabel, subsublabel).
+
+    Supports:
+    - legacy dotted codes: "Tier1.tier2.tier3" (or "Tier1.tier2")
+    - dict labels: {"main_label": ..., "sublabel": ..., "subsublabel": ...}
+    - loose separators: "Tier1 | tier2 | tier3" or "Tier1 > tier2 > tier3"
+    """
+    if isinstance(label, dict):
+        main = str(label.get("main_label") or label.get("tier1") or "").strip()
+        sub = str(label.get("sublabel") or label.get("tier2") or "").strip()
+        subsub = str(label.get("subsublabel") or label.get("tier3") or "").strip()
+        return main, sub, subsub
+
+    s = str(label or "").strip()
+    if not s:
+        return "", "", ""
+
+    # Try dotted code first.
+    if "." in s:
+        parts = [p.strip() for p in s.split(".") if p.strip()]
+        main = parts[0] if len(parts) >= 1 else ""
+        sub = parts[1] if len(parts) >= 2 else ""
+        subsub = parts[2] if len(parts) >= 3 else ""
+        return main, sub, subsub
+
+    # Try common human separators.
+    for sep in ("|", ">", "→", "/"):
+        if sep in s:
+            parts = [p.strip() for p in s.split(sep) if p.strip()]
+            main = parts[0] if len(parts) >= 1 else ""
+            sub = parts[1] if len(parts) >= 2 else ""
+            subsub = parts[2] if len(parts) >= 3 else ""
+            return main, sub, subsub
+
+    return s, "", ""
+
+
+def _label_struct_row(label: Any) -> list[str]:
+    main, sub, subsub = _parse_label_struct(label)
+    # Display-friendly main label (align with your "X interactions" scheme) while
+    # keeping legacy compatibility for matching/eval.
+    main_disp = f"{main} interactions" if main and "interaction" not in main.lower() else main
+    return [main_disp, sub, subsub]
+
+
 def _format_signal_extractor(data: dict[str, Any] | None) -> str:
     """Format Signal Extractor output for Discord."""
     if not data:
@@ -102,13 +149,13 @@ def _format_label_coder(data: dict[str, Any] | None) -> str:
         for i, item in enumerate(labels):
             if isinstance(item, dict):
                 rows.append([
-                    item.get("label", item.get("span_ref", i)),
+                    *_label_struct_row(item.get("label", "")),
                     (item.get("evidence_used") or "")[:50],
                     (item.get("rationale") or "")[:60],
                 ])
             else:
-                rows.append([str(item), "", ""])
-        parts.append(table_from_rows(["Label", "Evidence", "Rationale"], rows, title="Labels"))
+                rows.append([*_label_struct_row(item), "", "", ""])
+        parts.append(table_from_rows(["Main label", "Sublabel", "Subsublabel", "Evidence", "Rationale"], rows, title="Labels"))
     else:
         parts.append(section("Labels", "_None_"))
     uncertain = data.get("uncertain") or []
@@ -214,13 +261,13 @@ def _format_adjudicator(data: dict[str, Any] | None, context: dict[str, Any] | N
         for i, item in enumerate(final_labels):
             if isinstance(item, dict):
                 rows.append([
-                    item.get("label", item.get("span_ref", i)),
+                    *_label_struct_row(item.get("label", "")),
                     item.get("decision", ""),
                     (item.get("rationale") or "")[:70],
                 ])
             else:
-                rows.append([str(item), "", ""])
-        parts.append(table_from_rows(["Label", "Decision", "Rationale"], rows, title="Details"))
+                rows.append([*_label_struct_row(item), "", ""])
+        parts.append(table_from_rows(["Main label", "Sublabel", "Subsublabel", "Decision", "Rationale"], rows, title="Details"))
     else:
         parts.append(section("Details", "_None_"))
     uncertain = data.get("uncertain") or []

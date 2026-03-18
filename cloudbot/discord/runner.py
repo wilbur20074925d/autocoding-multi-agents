@@ -20,8 +20,10 @@ Optional (for separate bot identities per role):
 from __future__ import annotations
 
 import asyncio
+import csv
 import os
 import re
+from io import StringIO
 from typing import Any
 
 import discord
@@ -43,6 +45,7 @@ from .format import format_prompt_received
 
 # Trigger phrase (case-insensitive)
 LABEL_PROMPT_TRIGGER = "label this prompt"
+LABEL_CSV_TRIGGER = "label this csv"
 
 # Training/reflection trigger: user uploads training.csv and asks to learn/refine.
 TRAINING_TRIGGER_PHRASES = (
@@ -178,6 +181,8 @@ class ControllerBot(discord.Client):
             return
         content = (message.content or "").strip()
         lower = content.lower()
+        attachments = list(getattr(message, "attachments", []) or [])
+        has_csv_attachment = any((a.filename or "").lower().endswith(".csv") for a in attachments)
 
         # --- Training / reflection mode (CSV attachment) ---
         if any(p in lower for p in TRAINING_TRIGGER_PHRASES):
@@ -187,6 +192,12 @@ class ControllerBot(discord.Client):
         # --- Testing / evaluation mode (CSV attachment) ---
         if any(p in lower for p in TESTING_TRIGGER_PHRASES):
             await self._handle_testing_csv(message)
+            return
+
+        # --- Labeling from CSV (row-by-row, 4 bots + HC check in final) ---
+        # Triggered either by explicit phrase, or by sending only a .csv attachment with no text.
+        if LABEL_CSV_TRIGGER in lower or (has_csv_attachment and not content):
+            await self._handle_label_csv(message)
             return
 
         # --- Normal labeling mode ---
@@ -226,6 +237,92 @@ class ControllerBot(discord.Client):
                     await webhook.send(content=text, username=display_name)
                 else:
                     await message.channel.send(f"**[{display_name}]**\n{text}")
+
+    async def _handle_label_csv(self, message: Message) -> None:
+        """
+        Accept a CSV attachment and process it row-by-row.
+
+        Expected columns (case-sensitive preferred): group, timestamp, people, context, sentence, HC1, HC2.
+        Also accepts: prompt instead of sentence; timestamp-mm instead of timestamp.
+        """
+        attachments = list(getattr(message, "attachments", []) or [])
+        csv_attachments = [a for a in attachments if (a.filename or "").lower().endswith(".csv")]
+        if not csv_attachments:
+            await message.channel.send(
+                "No CSV attachment found. Please upload a `.csv` and send a message like `label this csv`."
+            )
+            return
+
+        att = csv_attachments[0]
+        try:
+            data = await att.read()
+            text = data.decode("utf-8-sig", errors="replace")
+        except Exception as e:
+            await message.channel.send(f"Failed to read attachment: {e}")
+            return
+
+        try:
+            rows = list(csv.DictReader(StringIO(text)))
+        except Exception as e:
+            await message.channel.send(f"Could not parse CSV: {e}")
+            return
+
+        if not rows:
+            await message.channel.send("CSV appears empty (no data rows).")
+            return
+
+        channel_id = message.channel.id
+        loop = asyncio.get_event_loop()
+
+        # Process one row at a time; do not start next until previous completes.
+        for i, row in enumerate(rows, start=1):
+            sentence = (row.get("sentence") or row.get("prompt") or "").strip()
+            if not sentence:
+                continue
+
+            group = (row.get("group") or "").strip()
+            timestamp = (row.get("timestamp") or row.get("timestamp-mm") or row.get("timestamp_mm") or "").strip()
+            people = (row.get("people") or "").strip()
+            ctx_tag = (row.get("context") or "").strip()
+            hc1 = (row.get("HC1") or row.get("hc1") or "").strip()
+            hc2 = (row.get("HC2") or row.get("hc2") or "").strip()
+
+            await message.channel.send(format_prompt_received(sentence))
+
+            pipeline_output = await loop.run_in_executor(
+                None,
+                lambda: self.run_pipeline(
+                    sentence,
+                    {
+                        "group": group,
+                        "timestamp": timestamp,
+                        "people": people,
+                        "context": ctx_tag,
+                        "row_index": i,
+                        "HC1": hc1,
+                        "HC2": hc2,
+                    },
+                ),
+            )
+            if "prompt" not in pipeline_output:
+                pipeline_output["prompt"] = sentence
+
+            messages = prepare_four_bot_messages(
+                pipeline_output,
+                include_prompt_in_first=True,
+            )
+
+            for role_id, text in messages:
+                bot = self.role_to_bot.get(role_id)
+                if bot is not None:
+                    await bot.send_to_channel(channel_id, text)
+                else:
+                    webhook = await get_or_create_pipeline_webhook(message.channel)
+                    display_name = ROLE_DISPLAY_NAMES.get(role_id, role_id)
+                    if webhook is not None:
+                        await webhook.send(content=text, username=display_name)
+                    else:
+                        await message.channel.send(f"**[{display_name}]**\n{text}")
 
     async def _handle_training_csv(self, message: Message) -> None:
         """

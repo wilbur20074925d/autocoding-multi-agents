@@ -132,7 +132,56 @@ def _format_boundary_critic(data: dict[str, Any] | None) -> str:
     return "\n\n".join(parts) if parts else section("Boundary Critic", "_No output_")
 
 
-def _format_adjudicator(data: dict[str, Any] | None) -> str:
+def _split_labels(cell: str) -> set[str]:
+    raw = (cell or "").strip()
+    if not raw:
+        return set()
+    # Accept comma/semicolon separated labels, ignore empties.
+    parts = [p.strip() for p in raw.replace(";", ",").split(",")]
+    return {p for p in parts if p}
+
+
+def _predicted_labels(final_labels: list[Any]) -> set[str]:
+    labels: set[str] = set()
+    for item in final_labels or []:
+        if isinstance(item, dict):
+            v = item.get("label")
+            if v:
+                labels.add(str(v).strip())
+        else:
+            s = str(item).strip()
+            if s:
+                labels.add(s)
+    return labels
+
+
+def _format_hc_check(context: dict[str, Any] | None, final_labels: list[Any]) -> str | None:
+    if not context:
+        return None
+    hc1 = str(context.get("HC1", "") or "").strip()
+    hc2 = str(context.get("HC2", "") or "").strip()
+    if not hc1 and not hc2:
+        return None
+
+    pred = {p.lower() for p in _predicted_labels(final_labels)}
+    gold1 = {g.lower() for g in _split_labels(hc1)}
+    gold2 = {g.lower() for g in _split_labels(hc2)}
+    is_right = bool(pred & (gold1 | gold2))
+    verdict = "RIGHT" if is_right else "WRONG"
+
+    return section(
+        "HC check",
+        "\n".join(
+            [
+                f"**HC1:** {hc1 or '_empty_'}",
+                f"**HC2:** {hc2 or '_empty_'}",
+                f"**Verdict:** {verdict}",
+            ]
+        ),
+    )
+
+
+def _format_adjudicator(data: dict[str, Any] | None, context: dict[str, Any] | None = None) -> str:
     """Format Adjudicator output for Discord (final answer summary + table + uncertain/retry)."""
     if not data:
         return section("⚖ Adjudicator", "_No output_")
@@ -168,6 +217,9 @@ def _format_adjudicator(data: dict[str, Any] | None) -> str:
                 title="Retry",
             )
         )
+    hc_check = _format_hc_check(context, final_labels)
+    if hc_check:
+        parts.append(hc_check)
     body = "\n\n".join(parts) if parts else "_No output_"
     return section("⚖ Adjudicator", body)
 
@@ -212,7 +264,8 @@ def prepare_four_bot_messages(
 
     # 4. Adjudicator
     adj_data = pipeline_output.get("adjudicator")
-    out.append((ADJUDICATOR, truncate(_format_adjudicator(adj_data), max_len=max_message_len)))
+    ctx = pipeline_output.get("context") if isinstance(pipeline_output, dict) else None
+    out.append((ADJUDICATOR, truncate(_format_adjudicator(adj_data, ctx), max_len=max_message_len)))
 
     return out
 

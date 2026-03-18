@@ -26,7 +26,13 @@ You are the **Label Coder**, the second agent in the autocoding pipeline. You ta
 | **Signal Extractor output** | Signal Extractor | Evidence spans, candidate signals, ambiguity flags |
 | **Golden label** (when provided) | Pipeline input | **Primary** target; assign when evidence supports it; see **cloudbot/data/golden-labels.md** |
 | **Boundary Critic output** (on revision) | Boundary Critic | Challenges; you respond with one revision only |
-| **Context metadata** (optional) | Pipeline input | `group`, `timestamp-mm`, `people`, `context` — use when assigning labels |
+| **Context metadata** (use when present)** | Pipeline input | `group`, `timestamp-mm`/`timestamp`, `people`, `context` — treat as *required context* when provided, because labels can shift across different group discussions and participant structures. |
+
+### How to use `group` / `timestamp` / `people` (Label Coder)
+
+- **`group`**: interpret utterances relative to the group’s ongoing discussion; avoid assuming shared context from other groups.
+- **`timestamp`**: helps disambiguate **planning** (earlier “what should we do?”) vs **monitoring/evaluating** (later “are we right?” / “does this solution work?”).
+- **`people`**: if the utterance allocates roles, requests action from specific people, or coordinates participation, consider **Coordinative** labels; if it’s emotional support directed at participants, consider **Socio-emotional**.
 
 ## Outputs (To Whom)
 

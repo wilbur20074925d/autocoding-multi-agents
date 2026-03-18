@@ -35,6 +35,26 @@ ADJUDICATOR = "adjudicator"
 DISPLAY_BOT_ORDER = [SIGNAL_EXTRACTOR, LABEL_CODER, BOUNDARY_CRITIC, ADJUDICATOR]
 
 
+def _format_context(context: dict[str, Any] | None) -> str | None:
+    """
+    Format shared metadata (group/timestamp/people/context) so *all four roles*
+    can condition their reasoning on multi-group discussion context.
+    """
+    if not context:
+        return None
+    pairs: list[tuple[str, Any]] = []
+    for k in ("group", "timestamp", "people", "context"):
+        v = context.get(k)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s:
+            pairs.append((k, s))
+    if not pairs:
+        return None
+    return key_value_pairs(pairs, title="Context")
+
+
 def _format_signal_extractor(data: dict[str, Any] | None) -> str:
     """Format Signal Extractor output for Discord."""
     if not data:
@@ -245,6 +265,8 @@ def prepare_four_bot_messages(
         controller if you need to post multiple chunks per bot.
     """
     prompt = (pipeline_output.get("prompt") or "") if include_prompt_in_first else ""
+    ctx = pipeline_output.get("context") if isinstance(pipeline_output, dict) else None
+    ctx_block = _format_context(ctx)
     out: list[tuple[str, str]] = []
 
     # 1. Signal Extractor
@@ -252,20 +274,30 @@ def prepare_four_bot_messages(
     msg1 = _format_signal_extractor(se_data)
     if prompt:
         msg1 = section("Prompt", truncate(prompt, max_len=400)) + "\n\n" + msg1
+    if ctx_block:
+        msg1 = ctx_block + "\n\n" + msg1
     out.append((SIGNAL_EXTRACTOR, truncate(msg1, max_len=max_message_len)))
 
     # 2. Label Coder
     lc_data = pipeline_output.get("label_coder")
-    out.append((LABEL_CODER, truncate(_format_label_coder(lc_data), max_len=max_message_len)))
+    msg2 = _format_label_coder(lc_data)
+    if ctx_block:
+        msg2 = ctx_block + "\n\n" + msg2
+    out.append((LABEL_CODER, truncate(msg2, max_len=max_message_len)))
 
     # 3. Boundary Critic
     bc_data = pipeline_output.get("boundary_critic")
-    out.append((BOUNDARY_CRITIC, truncate(_format_boundary_critic(bc_data), max_len=max_message_len)))
+    msg3 = _format_boundary_critic(bc_data)
+    if ctx_block:
+        msg3 = ctx_block + "\n\n" + msg3
+    out.append((BOUNDARY_CRITIC, truncate(msg3, max_len=max_message_len)))
 
     # 4. Adjudicator
     adj_data = pipeline_output.get("adjudicator")
-    ctx = pipeline_output.get("context") if isinstance(pipeline_output, dict) else None
-    out.append((ADJUDICATOR, truncate(_format_adjudicator(adj_data, ctx), max_len=max_message_len)))
+    msg4 = _format_adjudicator(adj_data, ctx)
+    if ctx_block:
+        msg4 = ctx_block + "\n\n" + msg4
+    out.append((ADJUDICATOR, truncate(msg4, max_len=max_message_len)))
 
     return out
 

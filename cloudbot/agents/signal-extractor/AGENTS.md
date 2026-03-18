@@ -21,8 +21,14 @@ You are the **Signal Extractor**, the first agent in the autocoding pipeline. Yo
 | Input | Source | Use |
 |-------|--------|-----|
 | **Original user prompt** | Pipeline input | Full text to extract from |
-| **Context metadata** (optional) | Pipeline input | `group`, `timestamp-mm`, `people`, `context` — use to inform extraction (e.g. participants, session, condition) |
+| **Context metadata** (use when present)** | Pipeline input | `group`, `timestamp-mm`/`timestamp`, `people`, `context` — treat as *required context* when provided, because prompts come from multiple group discussions. Use it to resolve ambiguity (e.g. who is speaking, turn timing, and which discussion/session the sentence belongs to). |
 | **Golden labels** (optional) | When provided with prompt | Primary source of truth for *criteria* only; use **cloudbot/data/golden-labels.md** to inform plausible candidates. Training data is auxiliary (辅助). |
+
+### How to use `group` / `timestamp` / `people` (Signal Extractor)
+
+- **`group`**: do not mix evidence across sessions; keep spans grounded in the current group’s discourse.
+- **`timestamp`**: use as a proxy for *turn position* (early vs late) when extracting evidence of planning vs evaluating vs monitoring.
+- **`people`**: use to interpret coordination and socio-emotional cues (e.g. addressing/allocating tasks to specific participants vs general reasoning).
 
 ## Outputs (To Whom)
 

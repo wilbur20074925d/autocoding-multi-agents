@@ -38,7 +38,13 @@ Be specific: reference the exact span and disputed label; cite **cloudbot/data/g
 | **Original user prompt** | Pipeline input | Full text being labeled |
 | **Signal Extractor output** | Signal Extractor | Evidence spans, candidate signals, ambiguity |
 | **Label Coder output** | Label Coder | Draft labels, evidence used, rationale |
-| **Context metadata** (optional) | Pipeline input | `group`, `timestamp-mm`, `people`, `context` — use when challenging boundaries |
+| **Context metadata** (use when present)** | Pipeline input | `group`, `timestamp-mm`/`timestamp`, `people`, `context` — treat as *required context* when provided. Use it to challenge boundary mistakes that arise from missing multi-group / participant context. |
+
+### How to use `group` / `timestamp` / `people` (Boundary Critic)
+
+- **`group`**: challenge labels that implicitly rely on facts from a different group/session.
+- **`timestamp`**: challenge planning/evaluating/monitoring confusion by checking whether the utterance is situated as *setup* vs *review* in the timeline.
+- **`people`**: challenge mislabels between **Coordinative** vs **Cognitive/Metacognitive** when the utterance is actually directing participants (e.g. “you do X”, “let’s split tasks”).
 
 ## Outputs (To Whom)
 

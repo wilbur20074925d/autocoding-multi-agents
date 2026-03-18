@@ -32,7 +32,7 @@ def normalize_human_label(
     Convert training CSV label strings into canonical-ish match patterns.
 
     Supports:
-    - Canonical codes: Tier1.tier2.tier3 (or Tier1.tier2 for Socio-emotional)
+    - Canonical codes: Tier1.tier2 (latest) or Tier1.tier2.tier3 (legacy/auxiliary)
     - Tier1-only: "cognitive" / "metacognitive" / "coordinative" / "socio-emotional"
     - Shorthand: "evaluating-give", "planning-ask", "concept_exploration-build_on"
     - The legacy escaped training CSV style: "concept\\exploration-build\\on"
@@ -49,21 +49,24 @@ def normalize_human_label(
     label = re.sub(r"\s+", "", label)
     label = label.replace("/", "_")
 
-    # Canonical Tier1.tier2.tier3
+    # Canonical Tier1.tier2(.tier3)
     if "." in label:
         parts = [p for p in label.split(".") if p]
         if len(parts) >= 2:
             tier1 = titlecase_tier1(parts[0])
             tier2 = parts[1]
             tier3 = parts[2] if len(parts) >= 3 else None
-            return NormalizationResult(raw=raw_label, patterns=[LabelPattern(tier1=tier1, tier2=tier2, tier3=tier3)], warnings=[])
+            # Latest scheme is Tier1.tier2; treat any provided tier3 as auxiliary.
+            # This ensures gold labels remain compatible with 3-tier predictions.
+            return NormalizationResult(raw=raw_label, patterns=[LabelPattern(tier1=tier1, tier2=tier2)], warnings=[])
 
     # Tier1-only
     lower = label.lower()
     if lower in _TIER1_ALIASES:
         return NormalizationResult(raw=raw_label, patterns=[LabelPattern(tier1=_TIER1_ALIASES[lower])], warnings=[])
 
-    # Shorthand tier2-tier3, infer tier1 from taxonomy
+    # Shorthand tier2-tier3 (or tier2_tier3), infer tier1 from taxonomy.
+    # Latest golden labels are tier2-only, so we drop tier3 after inference.
     m = re.match(r"^(?P<tier2>[a-z_]+)[-_](?P<tier3>[a-z_]+)$", lower)
     if m:
         tier2 = m.group("tier2")
@@ -81,11 +84,7 @@ def normalize_human_label(
             warnings.append(f"cannot infer tier1 from tier2='{tier2}' (unknown tier2)")
             return NormalizationResult(raw=raw_label, patterns=[], warnings=warnings)
 
-        # Socio-emotional has no tier3 in taxonomy; treat tier3 as absent.
-        if tier1 == "Socio-emotional":
-            return NormalizationResult(raw=raw_label, patterns=[LabelPattern(tier1=tier1, tier2=tier2)], warnings=warnings)
-
-        return NormalizationResult(raw=raw_label, patterns=[LabelPattern(tier1=tier1, tier2=tier2, tier3=tier3)], warnings=warnings)
+        return NormalizationResult(raw=raw_label, patterns=[LabelPattern(tier1=tier1, tier2=tier2)], warnings=warnings)
 
     warnings.append(f"unrecognized label format: '{raw}'")
     return NormalizationResult(raw=raw_label, patterns=[], warnings=warnings)

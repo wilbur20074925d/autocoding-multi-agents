@@ -17,14 +17,14 @@
 
 Use these criteria to **interpret and apply** labels consistently. All agents should use these boundaries; the Boundary Critic in particular must use them to challenge misapplication.
 
-### Tier 1 boundaries (when to use which tier)
+### Label (Tier 1) boundaries (when to use which label)
 
-| Tier 1 | Meaning | When to use |
+| Label | Meaning | When to use |
 |--------|---------|-------------|
-| **Cognitive** | **Task content:** what is being discussed, learned, or solved (concepts, facts, solutions). | Utterance is about *what* the task domain is—concepts, definitions, solution content, correctness of answers about the task. |
-| **Metacognitive** | **Process:** how we approach, plan, monitor, or evaluate the task. | Utterance is about *how* to do the task—planning steps, checking progress, evaluating whether the approach or output is OK, time/pace. |
-| **Coordinative** | **Coordination:** who does what, how we work together (roles, procedures, logistics). | Utterance is about task allocation, roles, procedures, tools, or logistics (e.g. "who should do what?", "how should we share the doc?"). |
-| **Socio-emotional** | **Relationship/affect:** emotions, encouragement, self-disclosure, group belonging. | Utterance expresses emotion, support, encouragement, self-disclosure, or sense of group. |
+| **Cognitive** | **Task content:** concepts and solutions related to the learning task. | Utterance is about *what* the task content is—concepts/definitions or solution content/correctness. |
+| **Metacognitive** | **Process:** planning, monitoring, evaluating the task. | Utterance is about *how* to do the task—planning steps, checking progress, or evaluating outputs. |
+| **Coordinative** | **Coordination:** who does what, and how the group works together. | Utterance is about role allocation, turn-taking, procedures, tools, and logistics. |
+| **Socio-emotional** | **Affect/relationship:** emotions, encouragement, self-disclosure. | Utterance expresses feelings, support/praise, or personal disclosure (experience, unfamiliarity). |
 
 **Critical distinctions:**
 
@@ -33,26 +33,15 @@ Use these criteria to **interpret and apply** labels consistently. All agents sh
 
 ### Tier 2 (sub-category) — precise use
 
-- **Cognitive:** `concept_exploration` = learning/clarifying concepts; `solution_development` = developing or refining solutions (e.g. naming, defining, analyzing in service of the task solution).
-- **Metacognitive:** `planning` = how to approach/solve; `monitoring` = progress, pace, whether we’re on track; `evaluating` = judging solutions/outputs.
-- **Coordinative:** `coordinate_participants` = roles, who does what; `coordinate_procedures` = logistics, tools, how we share/work.
-- **Socio-emotional:** `emotional`, `encouragement`, `forming_sense_of` — use taxonomy descriptions and examples in **label-taxonomy.csv**.
-
-### Tier 3 (action) — precise use
-
-- **ask** = question (information or procedure).
-- **answer** = direct answer to a question.
-- **agree** = agreement without adding new explanation (e.g. "yeah", "I think so").
-- **disagree** = disagreement.
-- **give** = providing information or input without being in response to a question.
-- **build_on** = agreeing **and** extending with explanation or new content.
-
-**Important:** Use **build_on** only when there is clear extension/elaboration. Simple agreement → **agree**, not build_on.
+- **Cognitive:** `concept_exploration` = discuss/clarify concepts; `solution_development` = discuss/clarify solutions/answers.
+- **Metacognitive:** `planning` = plan procedures/goal setting; `monitoring` = check progress/next steps vs plan; `evaluating` = assess information quality and outcomes.
+- **Coordinative:** `coordinate_participants` = allocate tasks/roles; `coordinate_procedures` = manage workflow/turn-taking/technical logistics.
+- **Socio-emotional:** `emotional_expression` = feelings/reactions; `encouragement` = praise/cheer; `self_disclosure` = personal experience/unfamiliarity.
 
 ### Label format
 
-- **Canonical form:** `Tier1.tier2.tier3` (e.g. `Cognitive.concept_exploration.ask`, `Metacognitive.monitoring.ask`).
-- **Socio-emotional:** Some entries have only tier2 (e.g. `Socio-emotional.emotional`); use as in **label-taxonomy.csv** (no tier3).
+- **Canonical form (latest):** `Tier1.tier2` (e.g. `Cognitive.concept_exploration`, `Metacognitive.monitoring`).
+- **Backward compatibility:** If a prediction includes a third segment (e.g. `Cognitive.concept_exploration.ask`), evaluation should still match a golden `Cognitive.concept_exploration` (tier3 is ignored when gold is tier2-only).
 - **From training CSV:** Human coders may use shorthand. Map to canonical form using **label-taxonomy.csv** as the single list of valid codes (see mapping table below).
 
 ---
@@ -64,7 +53,6 @@ Apply in order when in doubt:
 1. **Tier1 first:** Is it about *content* (what) → Cognitive. *Process* (how we do it) → Metacognitive. *Who does what / logistics* → Coordinative. *Feelings, support, belonging* → Socio-emotional.
 2. **Cognitive tier2:** About *concepts/definitions/learning* → concept_exploration. About *solutions, answers, task product* (naming, defining, analyzing the solution) → solution_development.
 3. **Metacognitive tier2:** About *how to approach or plan* → planning. About *progress, pace, on track* → monitoring. About *judging quality of solution/output* → evaluating.
-4. **Tier3:** Is there a *question*? → ask. A *direct answer to a question*? → answer. *Agreement with no new content*? → agree. *Agreement plus new explanation or extension*? → build_on. *New information not in response to a question*? → give. *Disagreement*? → disagree.
 
 ---
 
@@ -72,16 +60,117 @@ Apply in order when in doubt:
 
 | Utterance / situation | Correct direction | Common error to avoid |
 |------------------------|-------------------|------------------------|
-| "what is Bloom's taxonomy?" | Cognitive.concept_exploration.ask (content) | Not Metacognitive.planning.ask |
-| "how should we solve this question?" | Metacognitive.planning.ask (process) | Not Cognitive |
-| "should we move on to number two?" / "are we on the right track?" | Metacognitive.monitoring.ask | Not Cognitive; about progress |
-| "yeah" / "I think so" / "mhm, yeah" (no new content) | agree (in same tier2 as prior turn) | Not build_on; not give |
-| "that makes sense, then we didn't need to google" (agrees + extends) | build_on | agree = no extension |
-| "then you can start" (handing off / procedure) | Coordinative.coordinate_procedures.give | Not Socio-emotional |
-| "I was TA at this course, I have experience" (personal disclosure) | Socio-emotional (e.g. forming_sense_of or emotional per taxonomy) | Not Cognitive |
-| "do you think this solution is ok?" | Metacognitive.evaluating.ask | Not Cognitive (evaluating the *output*, not teaching content) |
-| "word count" / "how much is it?" (about the product) | Metacognitive.evaluating.give / evaluating.ask | About judging output |
-| "we can bullet point first then form it" (how to do the task) | Metacognitive.planning.give | Not solution_development (that’s content of solution) |
+| "What is Bloom's taxonomy?" | Cognitive.concept_exploration | Not Metacognitive.planning |
+| "The answer should be the last one." | Cognitive.solution_development | Not Metacognitive.evaluating (unless it is explicitly judging output quality) |
+| "We can first search for the answer." | Metacognitive.planning | Not Coordinative.coordinate_procedures (unless it’s about logistics/turn-taking) |
+| "We can move to the next question." | Metacognitive.monitoring | Not Coordinative.coordinate_procedures |
+| "GPT results lack detail." | Metacognitive.evaluating | Not Cognitive.solution_development |
+| "We can divide the task into three parts." | Coordinative.coordinate_participants | Not Metacognitive.planning |
+| "You go first." | Coordinative.coordinate_procedures | Not Socio-emotional.encouragement |
+| "That’s hilarious!" | Socio-emotional.emotional_expression | Not Cognitive |
+| "Thank you!" | Socio-emotional.encouragement | Not emotional_expression |
+| "I’ve worked as a TA before." | Socio-emotional.self_disclosure | Not Cognitive.concept_exploration |
+
+---
+
+## Golden examples by label (canonical dotted codes)
+
+Use these as the **default reference examples** for consistent human coding and for Boundary Critic challenges. Each block contains:
+
+- **Positive**: utterances that should be labeled as the code.
+- **Near-miss**: common confusions and the correct alternative label.
+
+### Cognitive.concept_exploration
+
+- **Positive**
+  - "What is Bloom's taxonomy?"
+  - "What does 'metacognitive' mean here?"
+  - "Can you explain what 'coordinate procedures' refers to?"
+- **Near-miss (NOT this)**
+  - "How should we solve this question?" → Metacognitive.planning
+  - "Are we on the right track?" → Metacognitive.monitoring
+
+### Cognitive.solution_development
+
+- **Positive**
+  - "The answer should be the last one."
+  - "Option C is best."
+  - "Let's phrase our final answer like this."
+- **Near-miss**
+  - "Should we split the work?" → Coordinative.coordinate_participants
+
+### Metacognitive.planning
+
+- **Positive**
+  - "How should we solve this question?"
+  - "What steps should we take first?"
+  - "Should we start by defining the concept or by checking options?"
+- **Near-miss (NOT this)**
+  - "Are we on the right track?" → Metacognitive.monitoring
+  - "Is our solution correct?" / "Does our explanation make sense?" → Metacognitive.evaluating
+
+### Metacognitive.monitoring
+
+- **Positive**
+  - "Are we on the right track?"
+  - "How much progress have we made?"
+  - "Do we need to speed up?"
+- **Near-miss**
+  - "Do you think this solution is ok?" → Metacognitive.evaluating
+
+### Metacognitive.evaluating
+
+- **Positive**
+  - "Do you think this solution is ok?"
+  - "Does our explanation make sense?"
+  - "Is our final answer strong enough?"
+- **Near-miss**
+  - "Are we on the right track?" → Metacognitive.monitoring
+
+### Coordinative.coordinate_participants
+
+- **Positive**
+  - "Who should do what?"
+  - "Can you handle the summary while I do the examples?"
+  - "Do you want to present or should I?"
+- **Near-miss**
+  - "How should we solve this?" → Metacognitive.planning
+
+### Coordinative.coordinate_procedures
+
+- **Positive**
+  - "How should we share information?"
+  - "Where do we write the final answer—Google Doc or chat?"
+  - "Should we use bullet points or paragraph format?"
+- **Near-miss**
+  - "Which option is correct?" → Cognitive.solution_development
+
+### Socio-emotional.emotional_expression
+
+- **Positive**
+  - "I'm confused."
+  - "I'm frustrated."
+  - "I'm nervous about this."
+- **Near-miss**
+  - "We're behind schedule." → Metacognitive.monitoring
+
+### Socio-emotional.encouragement
+
+- **Positive**
+  - "Good job."
+  - "Don't worry, we can do it."
+  - "Nice idea—keep going."
+- **Near-miss**
+  - "Yes, because..." → Usually Cognitive.* or Metacognitive.* (not encouragement)
+
+### Socio-emotional.self_disclosure
+
+- **Positive**
+  - "I’ve worked as a TA before."
+  - "I’m not familiar with this topic."
+  - "I’ve never done this kind of task."
+- **Near-miss**
+  - "Let's split tasks." → Coordinative.coordinate_participants
 
 ---
 
@@ -91,17 +180,16 @@ Use **label-taxonomy.csv** for the exact list. Common mappings:
 
 | Training shorthand | Canonical (example) |
 |--------------------|---------------------|
-| concept\exploration-ask | Cognitive.concept_exploration.ask |
-| concept\exploration-answer, give, agree, disagree, build_on | Cognitive.concept_exploration.* |
-| solution\development-* | Cognitive.solution_development.* |
-| monitoring-ask, monitoring-answer, etc. | Metacognitive.monitoring.* |
-| planning-* | Metacognitive.planning.* |
-| evaluating-* | Metacognitive.evaluating.* |
-| coordinate\procedure-* | Coordinative.coordinate_procedures.* (exact: coordinate_procedures in taxonomy) |
-| coordinate\participants-* | Coordinative.coordinate_participants.* |
-| emotional\expression | Socio-emotional.emotional (tier2 only in taxonomy) |
-| selfdisclosure | Socio-emotional.forming_sense_of or Socio-emotional.emotional (use taxonomy; no "selfdisclosure" code—map to closest: forming sense of group / personal disclosure) |
+| concept\exploration-ask / concept\exploration-answer / concept\exploration-give / ... | Cognitive.concept_exploration (tier3 ignored in latest scheme) |
+| solution\development-* | Cognitive.solution_development |
+| planning-* | Metacognitive.planning |
+| monitoring-* | Metacognitive.monitoring |
+| evaluating-* | Metacognitive.evaluating |
+| coordinate\procedure-* | Coordinative.coordinate_procedures |
+| coordinate\participants-* | Coordinative.coordinate_participants |
+| emotional\expression | Socio-emotional.emotional_expression |
 | encouragement | Socio-emotional.encouragement |
+| selfdisclosure / self_disclosure | Socio-emotional.self_disclosure |
 
 ---
 
@@ -111,7 +199,6 @@ Before finalizing or challenging a label, verify:
 
 - [ ] **Tier1** matches the *primary* intent: content vs process vs coordination vs socio-emotional.
 - [ ] **Tier2** is correct for that tier1 (e.g. concept_exploration vs solution_development; planning vs monitoring vs evaluating).
-- [ ] **Tier3** matches the speech act: ask vs answer vs give vs agree vs build_on vs disagree (build_on only if there is clear extension).
 - [ ] The label exists in **label-taxonomy.csv** (exact string, including capitalization).
 - [ ] At least one evidence span explicitly supports this label (no unsupported inference).
 

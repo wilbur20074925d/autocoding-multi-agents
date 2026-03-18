@@ -107,9 +107,46 @@ def key_value_pairs(
 
 
 def format_prompt_received(prompt: str, *, max_len: int = 500) -> str:
-    """Format the initial user prompt for clear display (e.g. first message in thread)."""
+    """
+    Format the initial controller message.
+
+    Requirements:
+    - Show the controller "orders" + the prompt.
+    - Entire message should be bold for strong visual separation.
+    """
     text = truncate((prompt or "").strip(), max_len=max_len)
-    return section("Prompt received", text, use_blockquote=True)
+    lines = [
+        "CONTROLLER",
+        "",
+        "ORDERS",
+        "1) Signal Extractor → extract evidence spans + candidate signals",
+        "2) Label Coder → assign label(s) with rationale",
+        "3) Boundary Critic → challenge boundaries / request missing evidence",
+        "4) Adjudicator → decide final label(s)",
+        "",
+        "PROMPT",
+        text or "_empty_",
+    ]
+    body = "\n".join(lines).strip()
+    # Bold across newlines is supported by Discord markdown.
+    return f"**{body}**"
+
+
+def format_hc_check(*, predicted: str | None, hc1: str, hc2: str) -> str:
+    """
+    Controller-only HC check message.
+    Show only current label + HC1/HC2 (no right/wrong verdict).
+    Entire message is bold.
+    """
+    lines = [
+        "CONTROLLER",
+        "",
+        "HC CHECK",
+        f"Predicted: {predicted or '_no prediction_'}",
+        f"HC1: {hc1 or '_empty_'}",
+        f"HC2: {hc2 or '_empty_'}",
+    ]
+    return f"**{chr(10).join(lines).strip()}**"
 
 
 def format_final_answer_summary(final_labels: list[Any]) -> str:

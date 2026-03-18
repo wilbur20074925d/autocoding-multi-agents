@@ -40,7 +40,7 @@ group,timestamp-mm,people,context,sentence,LLMs-revised sentence,HC1,HC2
 G11,00:01:13,"1,2,3",no-gai,hhhh,hhh,"cognitive, metacognitive","socio-emotional, metacognitive"
 ```
 
-Labels in HC1 and HC2 must follow the 3-tier taxonomy in **label-taxonomy.csv** (in this folder: `cloudbot/data/label-taxonomy.csv`) (e.g. `Cognitive.concept_exploration.ask`, or tier1-only like `cognitive`, `metacognitive`). Use the script in `training/load_training_csv.py` to load this CSV and convert to a unified format for evaluation.
+Labels in HC1 and HC2 must follow the taxonomy in **label-taxonomy.csv** (in this folder: `cloudbot/data/label-taxonomy.csv`). The latest canonical form is **2-tier** (e.g. `Cognitive.concept_exploration`, or tier1-only like `cognitive`, `metacognitive`). If older 3-tier codes appear (e.g. `Cognitive.concept_exploration.ask`), evaluation treats tier3 as auxiliary and will still match the tier2 golden label. Use the script in `training/load_training_csv.py` to load this CSV and convert to a unified format for evaluation.
 
 **Context for the pipeline:** When you run the autocoding pipeline (Signal Extractor → Label Coder → Boundary Critic → Adjudicator), pass **group**, **timestamp-mm**, **people**, and **context** along with each prompt. All four agents are instructed to take these into consideration (e.g. who is speaking, which session, when in the session) when extracting evidence, assigning labels, challenging boundaries, and making final decisions. See **FLOW.md** and each agent’s skill under `.cursor/skills/`.
 
@@ -49,19 +49,19 @@ Labels in HC1 and HC2 must follow the 3-tier taxonomy in **label-taxonomy.csv** 
 One JSON object per line:
 
 ```json
-{"prompt": "what is bloom taxonomy?", "label": "Cognitive.concept_exploration.ask"}
-{"prompt": "how should we solve this question?", "label": "Metacognitive.planning.ask"}
+{"prompt": "what is bloom taxonomy?", "label": "Cognitive.concept_exploration"}
+{"prompt": "how should we solve this question?", "label": "Metacognitive.planning"}
 ```
 
 Or CSV with columns `prompt` and `label` (and optionally `id`, `notes`):
 
 ```csv
 prompt,label
-what is bloom taxonomy?,Cognitive.concept_exploration.ask
-how should we solve this question?,Metacognitive.planning.ask
+what is bloom taxonomy?,Cognitive.concept_exploration
+how should we solve this question?,Metacognitive.planning
 ```
 
-Labels must follow the 3-tier taxonomy in **label-taxonomy.csv** (in this folder) (e.g. `Cognitive.concept_exploration.ask`).
+Labels must follow the taxonomy in **label-taxonomy.csv** (in this folder) (e.g. `Cognitive.concept_exploration`).
 
 ### Prompts-only CSV (no labels)
 

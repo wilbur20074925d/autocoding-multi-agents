@@ -230,19 +230,14 @@ def _format_hc_check(context: dict[str, Any] | None, final_labels: list[Any]) ->
     if not hc1 and not hc2:
         return None
 
-    pred = {p.lower() for p in _predicted_labels(final_labels)}
-    gold1 = {g.lower() for g in _split_labels(hc1)}
-    gold2 = {g.lower() for g in _split_labels(hc2)}
-    is_right = bool(pred & (gold1 | gold2))
-    verdict = "RIGHT" if is_right else "WRONG"
-
+    # HC check is now posted by the Controller as a separate message.
+    # Keep this helper for potential non-Discord consumers, but do not render verdict here.
     return section(
         "HC check",
         "\n".join(
             [
                 f"**HC1:** {hc1 or '_empty_'}",
                 f"**HC2:** {hc2 or '_empty_'}",
-                f"**Verdict:** {verdict}",
             ]
         ),
     )
@@ -284,9 +279,7 @@ def _format_adjudicator(data: dict[str, Any] | None, context: dict[str, Any] | N
                 title="Retry",
             )
         )
-    hc_check = _format_hc_check(context, final_labels)
-    if hc_check:
-        parts.append(hc_check)
+    # HC check is posted by the Controller (separate message).
     body = "\n\n".join(parts) if parts else "_No output_"
     return section("⚖ Adjudicator", body)
 

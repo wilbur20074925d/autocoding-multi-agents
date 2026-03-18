@@ -41,7 +41,7 @@ from .dispatcher import (
     SIGNAL_EXTRACTOR,
     prepare_four_bot_messages,
 )
-from .format import format_prompt_received
+from .format import format_hc_check, format_prompt_received
 
 # Trigger phrase (case-insensitive)
 LABEL_PROMPT_TRIGGER = "label this prompt"
@@ -323,6 +323,20 @@ class ControllerBot(discord.Client):
                         await webhook.send(content=text, username=display_name)
                     else:
                         await message.channel.send(f"**[{display_name}]**\n{text}")
+
+            # After the four roles, Controller posts HC check (structured; no right/wrong).
+            predicted = None
+            try:
+                finals = (pipeline_output.get("adjudicator") or {}).get("final_labels") or []
+                if finals:
+                    first = finals[0]
+                    predicted = (first.get("label") if isinstance(first, dict) else str(first)) if first else None
+            except Exception:
+                predicted = None
+
+            await message.channel.send(
+                format_hc_check(predicted=predicted, hc1=hc1, hc2=hc2)
+            )
 
     async def _handle_training_csv(self, message: Message) -> None:
         """

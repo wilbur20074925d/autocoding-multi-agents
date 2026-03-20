@@ -129,6 +129,8 @@ You will simulate the 4-agent autocoding pipeline and output ONE JSON object wit
 }}
 
 Rules:
+- All four agents start with EMPTY memory for this run. Do not use any prior conversation state.
+- Use ONLY the current prompt/context and provided artifacts (taxonomy + golden labels).
 - Final labels MUST be chosen from this allowed taxonomy list:
 {allowed}
 - Use golden-labels boundaries and decision rules below.
@@ -162,64 +164,58 @@ Golden-labels criteria excerpt:
 
 
 # Heuristic keywords → candidate tier1.tier2 labels (subset of taxonomy)
-_METACOGNITIVE_MONITORING = [
-    "Metacognitive.monitoring.ask",
-    "Metacognitive.monitoring.answer",
-    "Metacognitive.monitoring.give",
-]
-_METACOGNITIVE_PLANNING = [
-    "Metacognitive.planning.ask",
-    "Metacognitive.planning.give",
-]
-_METACOGNITIVE_EVALUATING = [
-    "Metacognitive.evaluating.ask",
-    "Metacognitive.evaluating.give",
-]
-_COGNITIVE_CONCEPT = [
-    "Cognitive.concept_exploration.ask",
-    "Cognitive.concept_exploration.give",
-]
-_COGNITIVE_SOLUTION = [
-    "Cognitive.solution_development.ask",
-    "Cognitive.solution_development.give",
-]
-_COORDINATIVE = [
-    "Coordinative.coordinate_participants.ask",
-    "Coordinative.coordinate_procedures.ask",
-]
+_METACOGNITIVE_MONITORING = ["Metacognitive.monitoring"]
+_METACOGNITIVE_PLANNING = ["Metacognitive.planning"]
+_METACOGNITIVE_EVALUATING = ["Metacognitive.evaluating"]
+_COGNITIVE_CONCEPT = ["Cognitive.concept_exploration"]
+_COGNITIVE_SOLUTION = ["Cognitive.solution_development"]
+_COORDINATIVE = ["Coordinative.coordinate_participants", "Coordinative.coordinate_procedures"]
 
 
 def _keyword_candidates(text: str) -> list[str]:
     t = text.lower()
     candidates: list[str] = []
-    if any(w in t for w in ("check", "reasoning", "correct", "progress", "track", "on the right")):
+    if any(w in t for w in ("progress", "track", "on the right track", "move to next", "next question", "speed up")):
         candidates.extend(_METACOGNITIVE_MONITORING)
-    if any(w in t for w in ("plan", "how should we", "solve", "procedure")):
+    if any(w in t for w in ("plan", "how should we", "what steps", "procedure", "first we", "strategy")):
         candidates.extend(_METACOGNITIVE_PLANNING)
-    if any(w in t for w in ("evaluat", "solution", "think this", "ok", "great")):
+    if any(w in t for w in ("evaluat", "is this", "good enough", "correct", "does this make sense", "quality")):
         candidates.extend(_METACOGNITIVE_EVALUATING)
-    if any(w in t for w in ("concept", "bloom", "what is", "clarif")):
+    if any(w in t for w in ("concept", "bloom", "what is", "clarif", "meaning", "define")):
         candidates.extend(_COGNITIVE_CONCEPT)
-    if any(w in t for w in ("develop", "solution", "option")):
+    if any(w in t for w in ("answer", "option", "solution should", "final answer")):
         candidates.extend(_COGNITIVE_SOLUTION)
-    if any(w in t for w in ("who should", "task", "share", "allocate")):
+    if any(w in t for w in ("who should", "divide", "split", "allocate", "you go first", "turn", "share")):
         candidates.extend(_COORDINATIVE)
     if not candidates:
-        candidates.extend(_METACOGNITIVE_MONITORING[:1])  # default one candidate
+        # Safer fallback: avoid over-predicting monitoring when intent is unclear.
+        candidates.extend(_COGNITIVE_CONCEPT)
     return list(dict.fromkeys(candidates))
 
 
 def _pick_best_label(candidates: list[str], text: str) -> str:
     t = text.lower()
-    if any(w in t for w in ("check", "reasoning", "correct")):
+    if any(w in t for w in ("progress", "track", "next question", "speed up")):
         for c in candidates:
-            if "monitoring" in c:
+            if c == "Metacognitive.monitoring":
                 return c
-    if any(w in t for w in ("plan", "how should")):
+    if any(w in t for w in ("plan", "how should", "what steps", "strategy", "first we")):
         for c in candidates:
-            if "planning" in c:
+            if c == "Metacognitive.planning":
                 return c
-    return candidates[0] if candidates else "Metacognitive.monitoring.give"
+    if any(w in t for w in ("is this", "good enough", "does this make sense", "correct")):
+        for c in candidates:
+            if c == "Metacognitive.evaluating":
+                return c
+    if any(w in t for w in ("what is", "define", "meaning", "concept", "bloom")):
+        for c in candidates:
+            if c == "Cognitive.concept_exploration":
+                return c
+    if any(w in t for w in ("answer", "option", "final answer")):
+        for c in candidates:
+            if c == "Cognitive.solution_development":
+                return c
+    return candidates[0] if candidates else "Cognitive.concept_exploration"
 
 
 def run_autocoding_pipeline(

@@ -1,6 +1,6 @@
 ---
 name: label-coder
-description: Assigns 3-tier labels (cognitive, metacognitive, coordinative, socio-emotional) to user prompts using extracted evidence. Use when autocoding prompts after the Signal Extractor has produced evidence spans and candidate signals, or when revising labels after Boundary Critic feedback.
+description: Assigns labels (Tier1.Tier2) to user prompts using extracted evidence. Use when autocoding prompts after the Signal Extractor has produced evidence spans and candidate signals, or when revising labels after Boundary Critic feedback.
 ---
 
 # Label Coder
@@ -23,13 +23,13 @@ Second agent in the pipeline. You take the **original prompt** and **extracted e
 
 ## Outputs (to Boundary Critic, then Adjudicator)
 
-- **Final labels** per span or per prompt segment: `tier1.tier2.tier3` from **cloudbot/data/label-taxonomy.csv**
+- **Final labels** per span or per prompt segment: `tier1.tier2` from **cloudbot/data/label-taxonomy.csv**
 - **Evidence used**: which span(s) support each assigned label (exact quote or span_ref)
 - Short **rationale** per label (optional but recommended)
 
 ## Taxonomy and precise criteria
 
-Labels must come from **cloudbot/data/label-taxonomy.csv** (exact spelling: e.g. `coordinate_procedures` not `coordinate_procedure`). Use **cloudbot/data/golden-labels.md** for **precise criteria** and **decision rules** (apply in order when in doubt). Training: **cloudbot/data/training/** for calibration only (auxiliary).
+Labels must come from **cloudbot/data/label-taxonomy.csv** (exact spelling: e.g. `coordinate_procedures` not `coordinate_procedure`). Use **cloudbot/data/golden-labels.md** for **precise criteria** and **decision rules** (apply in order when in doubt). Training: **cloudbot/data/training/** for calibration only (auxiliary). Use canonical format `Tier1.tier2` only (no tier3 output).
 
 ## Instructions
 
@@ -43,7 +43,7 @@ Labels must come from **cloudbot/data/label-taxonomy.csv** (exact spelling: e.g.
    - Base every label on at least one evidence span from the Signal Extractor. If evidence is missing for a part of the prompt, assign no label for that part or mark uncertain; do not invent spans.
 
 4. **Choose one primary label per span**
-   - Prefer one label per evidence span. Use **golden-labels.md** for boundaries (e.g. build_on only when there is extension; simple agreement → agree).
+   - Prefer one label per evidence span. Use **golden-labels.md** boundaries to separate content/process/coordination/socio-emotional, then choose the best tier2 within that tier1.
 
 5. **Respect ambiguity**
    - Where the Signal Extractor marked ambiguity, choose the most plausible single code and note the alternative, or output "uncertain" with the candidate set.
@@ -52,11 +52,15 @@ Labels must come from **cloudbot/data/label-taxonomy.csv** (exact spelling: e.g.
    - When the Boundary Critic challenges, produce **one revision** only: change the label with justification, keep the label and explain why the challenge does not apply, or mark uncertain and list disputed options.
 
 7. **Accuracy: validate before output**
-   - Use the **Accuracy checklist** in **golden-labels.md**: tier1 = primary intent (content/process/coordination/socio-emotional); tier2 correct for that tier; tier3 = actual speech act (ask/answer/give/agree/build_on/disagree); label must exist in **label-taxonomy.csv**; every label must be supported by at least one evidence span (exact quote or span_ref).
-   - Prefer **agree** over **build_on** unless the span clearly adds new explanation or content; prefer **concept_exploration** for concept/definition talk and **solution_development** for solution/task-product talk.
+   - Use the **Accuracy checklist** in **golden-labels.md**: tier1 = primary intent (content/process/coordination/socio-emotional); tier2 correct for that tier; label must exist in **label-taxonomy.csv**; every label must be supported by at least one evidence span (exact quote or span_ref).
+   - Calibrate metacognitive subtypes carefully to avoid overusing monitoring:
+     - `planning`: asks/proposes approach, sequence, or strategy ("how should we solve", "what steps first")
+     - `monitoring`: checks progress/pacing/on-track status ("are we on track", "move to next question")
+     - `evaluating`: judges quality/correctness/adequacy of output ("is this solution good enough")
+   - Prefer `concept_exploration` for concept/definition talk and `solution_development` for solution/task-product talk.
 
 8. **Display reasons in your role**
-   - When you assign labels, **always display reasons** so the Boundary Critic and Adjudicator (and the user) see why you chose each label. For each label: state **why this tier1** (e.g. "about task content, not process"), **why this tier2** (e.g. "concept/definition, so concept_exploration"), **why this tier3** (e.g. "explicit question → ask"), and **which evidence** supports it. After a revision, set **revision_note** with reasons for what you changed and why. This makes your role (assign labels from evidence) transparent and improves challenge/arbitration accuracy.
+   - When you assign labels, **always display reasons** so the Boundary Critic and Adjudicator (and the user) see why you chose each label. For each label: state **why this tier1** (e.g. "about task content, not process"), **why this tier2** (e.g. "concept/definition, so concept_exploration"), and **which evidence** supports it. After a revision, set **revision_note** with reasons for what you changed and why. This makes your role (assign labels from evidence) transparent and improves challenge/arbitration accuracy.
 
 ## Output Format
 
@@ -65,7 +69,7 @@ Structured so Boundary Critic and Adjudicator can use it. **Include rationale fo
 ```json
 {
   "labels": [
-    { "span_ref": 0, "label": "Cognitive.concept_exploration.ask", "evidence_used": "exact quote", "rationale": "Why this label: tier1=Cognitive (content question); tier2=concept_exploration (clarifying concept); tier3=ask (question); evidence span explicitly asks for concept." }
+    { "span_ref": 0, "label": "Cognitive.concept_exploration", "evidence_used": "exact quote", "rationale": "Why this label: tier1=Cognitive (content question); tier2=concept_exploration (clarifying concept); evidence span explicitly asks for concept." }
   ],
   "uncertain": [],
   "revision_note": null

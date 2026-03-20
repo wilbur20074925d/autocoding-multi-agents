@@ -28,7 +28,7 @@ Final agent in the pipeline. You read **all prior outputs**, then decide the **f
 Choose one (or combine as below) per disputed item or for the whole prompt:
 
 1. **Accept coder**: Keep the Label Coder’s (possibly revised) label.
-2. **Accept critic**: Override with the critic’s suggested alternative; output the final label you infer from the critic’s argument (e.g. Metacognitive.planning.ask).
+2. **Accept critic**: Override with the critic’s suggested alternative; output the final label you infer from the critic’s argument (e.g. `Metacognitive.planning`).
 3. **Combine both**: Use coder for some spans and critic’s view for others; state clearly which label applies where.
 4. **Mark uncertain**: No single label; output the set of candidate labels and that the case is uncertain.
 
@@ -48,7 +48,7 @@ Optionally:
    - Use the original prompt, evidence spans, coder’s labels and rationale, and critic’s challenges (and suggested_alternative) together. Do not ignore the critic’s reasons or **golden-labels.md** boundaries.
 
 4. **Respect the taxonomy**
-   - Final labels must be **exact** strings from **cloudbot/data/label-taxonomy.csv** (e.g. `Coordinative.coordinate_procedures.give`, not `coordinate_procedure`). Check tier2 spelling (e.g. coordinate_procedures, concept_exploration, solution_development).
+   - Final labels must be **exact** strings from **cloudbot/data/label-taxonomy.csv** (e.g. `Coordinative.coordinate_procedures`, not `coordinate_procedure`). Check tier2 spelling (e.g. coordinate_procedures, concept_exploration, solution_development).
 
 5. **Prefer explicit evidence**
    - If the critic argued "evidence not explicit enough" and you agree, prefer "mark uncertain" or "accept critic" over keeping a weakly supported label.
@@ -60,10 +60,12 @@ Optionally:
    - Emit the final label(s) and a short justification (e.g. "Accept coder; matches golden label and evidence." or "Accept critic; boundary wrong per golden-labels.md.").
 
 8. **Accuracy: final check before output**
-   - Run the **Accuracy checklist** in **golden-labels.md**: tier1 = primary intent; tier2 and tier3 correct; label exists in **label-taxonomy.csv**; supported by evidence. When golden label is provided and you accept coder, confirm the accepted label matches the golden label (or note why you accepted critic/uncertain). This keeps final labels consistent with golden criteria.
+   - Run the **Accuracy checklist** in **golden-labels.md**: tier1 = primary intent; tier2 correct; label exists in **label-taxonomy.csv**; supported by evidence. When golden label is provided and you accept coder, confirm the accepted label matches the golden label (or note why you accepted critic/uncertain). This keeps final labels consistent with golden criteria.
+   - Enforce canonical output format `tier1.tier2` only; do not output tier3 segments.
+   - Before accepting any `Metacognitive.monitoring` label, verify the evidence explicitly indicates progress/on-track/pacing. If evidence instead reflects strategy or quality judgment, prefer critic/coder alternative (`planning` or `evaluating`) or mark uncertain.
 
 9. **Display reasons in your role**
-   - When you retrieve the prompt and all prior outputs, **always display reasons** for your final decisions in line with your role (final arbitration). For each **final label**: state **why** you accepted coder or critic (rationale), **how** it fits the evidence and golden-labels (e.g. "Evidence span is content question; golden-labels: content → Cognitive.concept_exploration.ask"), and **why** you did not choose the other option. For **uncertain** items: state **why** you marked uncertain (e.g. "Critic and coder both plausible; evidence ambiguous"). For **retry**: state **why** one more round is needed. This makes your role (final decider) transparent and gives the user clear justification for every label.
+   - When you retrieve the prompt and all prior outputs, **always display reasons** for your final decisions in line with your role (final arbitration). For each **final label**: state **why** you accepted coder or critic (rationale), **how** it fits the evidence and golden-labels (e.g. "Evidence span is content question; golden-labels: content → Cognitive.concept_exploration"), and **why** you did not choose the other option. For **uncertain** items: state **why** you marked uncertain (e.g. "Critic and coder both plausible; evidence ambiguous"). For **retry**: state **why** one more round is needed. This makes your role (final decider) transparent and gives the user clear justification for every label.
 
 ## Output Format
 
@@ -72,7 +74,7 @@ Include **rationale** for every final label and uncertain item, tied to your rol
 ```json
 {
   "final_labels": [
-    { "span_ref": 0, "label": "Cognitive.concept_exploration.ask", "decision": "accept_coder", "rationale": "Accept coder: evidence span explicitly asks for concept; golden-labels: content question → Cognitive.concept_exploration.ask; critic did not successfully challenge." }
+    { "span_ref": 0, "label": "Cognitive.concept_exploration", "decision": "accept_coder", "rationale": "Accept coder: evidence span explicitly asks for concept; golden-labels: content question → Cognitive.concept_exploration; critic did not successfully challenge." }
   ],
   "uncertain": [],
   "retry": null

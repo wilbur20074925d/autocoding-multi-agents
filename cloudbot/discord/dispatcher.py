@@ -183,30 +183,80 @@ def _format_boundary_critic(data: dict[str, Any] | None) -> str:
         return section("Boundary Critic", "_No output_")
     parts = []
     challenges = data.get("challenges") or []
+    # Header summary for quick scan
+    requests = data.get("request_missing_evidence") or []
+    parts.append(
+        section(
+            "Boundary Review Summary",
+            f"Challenges: **{len(challenges)}** | Missing evidence requests: **{len(requests)}**",
+        )
+    )
     if challenges:
         rows = []
         for c in challenges[:15]:
             if isinstance(c, dict):
+                must = "Y" if c.get("must_challenge") else ""
                 rows.append([
                     str(c.get("assigned_label", c.get("span_ref", "")))[:40],
-                    (c.get("question") or "")[:50],
-                    (c.get("reason") or "")[:60],
+                    (c.get("question") or "")[:38],
+                    str(c.get("suggested_alternative") or "")[:34],
+                    str(c.get("margin") if c.get("margin") is not None else "")[:8],
+                    must,
                 ])
             else:
-                rows.append([str(c)[:40], "", ""])
-        parts.append(table_from_rows(["Label / span", "Question", "Reason"], rows, title="Challenges"))
+                rows.append([str(c)[:40], "", "", "", ""])
+        parts.append(
+            table_from_rows(
+                ["Label / span", "Question", "Alternative", "Margin", "Must"],
+                rows,
+                title="Challenges (overview)",
+            )
+        )
+        # Show pro/con and reverse-test details in readable blocks.
+        details = []
+        for i, c in enumerate(challenges[:5], start=1):
+            if not isinstance(c, dict):
+                continue
+            lbl = str(c.get("assigned_label", c.get("span_ref", "")))
+            q = (c.get("question") or "").strip()
+            r = (c.get("reason") or "").strip()
+            alt = (c.get("suggested_alternative") or "").strip() or "_none_"
+            pro = (c.get("support_evidence") or "").strip()
+            con = (c.get("refute_evidence") or "").strip()
+            test = (c.get("counterexample_test") or "").strip()
+            margin = c.get("margin")
+            if pro or con or test or q or r:
+                block = (
+                    f"#{i} `{lbl}`\n"
+                    f"Q: {q[:140]}\n"
+                    f"Reason: {r[:180]}\n"
+                    f"Alternative: `{alt}`"
+                )
+                if margin is not None:
+                    block += f"\nMargin: `{margin}`"
+                if pro:
+                    block += f"\nPro: {pro[:180]}"
+                if con:
+                    block += f"\nCon: {con[:180]}"
+                if test:
+                    block += f"\nReverse test: {test[:180]}"
+                details.append(block)
+        if details:
+            parts.append(bullet_list(details, header="Reasoning details"))
     else:
         parts.append(section("Challenges", "_None_"))
-    requests = data.get("request_missing_evidence") or []
     if requests:
-        items = []
+        rows = []
         for r in requests[:10]:
             if isinstance(r, dict):
-                items.append((r.get("reason") or str(r))[:100])
+                rows.append([
+                    str(r.get("part_of_prompt") or "")[:44],
+                    str(r.get("reason") or "")[:90],
+                ])
             else:
-                items.append(str(r)[:100])
-        parts.append(bullet_list(items, header="Request missing evidence"))
-    return "\n\n".join(parts) if parts else section("Boundary Critic", "_No output_")
+                rows.append(["", str(r)[:90]])
+        parts.append(table_from_rows(["Missing part", "Reason"], rows, title="Request missing evidence"))
+    return "\n\n".join(parts) if parts else section("🛡 Boundary Critic", "_No output_")
 
 
 def _split_labels(cell: str) -> set[str]:

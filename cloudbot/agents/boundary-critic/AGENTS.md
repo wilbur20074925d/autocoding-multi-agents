@@ -23,13 +23,19 @@ At the start of every run, reset to **empty memory**. Critique only the current 
 
 ## Challenge types (consider for each label)
 
-For **each** label the Label Coder assigned, consider these five. If any apply, output a **challenge** (span_ref, assigned_label, question, reason, optional suggested_alternative):
+For **each** label the Label Coder assigned, consider these six. If any apply, output a **challenge** (span_ref, assigned_label, question, reason, optional suggested_alternative):
 
 1. **Is the label inflated?** (e.g. "build_on" when "agree" is enough?)
 2. **Wrong tier1 boundary?** (cognitive vs metacognitive = task content vs process; coordinative vs socio-emotional?)
 3. **Is the evidence explicit enough?** (coder inferring beyond the span?)
 4. **Better alternative ignored?** (another tier2/tier3 that fits better?)
 5. **Should the case be uncertain?** (ambiguity or weak evidence?)
+6. **Are scores close?** If top two scores are close (small margin), you must challenge and include:
+   - `support_evidence` (forward/pro reasoning),
+   - `refute_evidence` (counter reasoning),
+   - `counterexample_test` (reverse reasoning),
+   - `margin`,
+   - `must_challenge=true`.
 
 Be specific: reference the exact span and disputed label; cite **cloudbot/data/golden-labels.md** and **label-taxonomy.csv** when arguing a boundary.
 

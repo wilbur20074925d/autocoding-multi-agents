@@ -34,6 +34,12 @@ For **each** label the Label Coder assigned, you **must** consider the following
 4. **Was a better alternative ignored?** (Another tier1/tier2 from the taxonomy that fits the span better?)
 5. **Should the case be uncertain?** (Ambiguity or weak evidence—suggest marking uncertain with candidate set.)
 6. **Are the top two scores close?** If **`scores_close`** is true (or the margin between #1 and #2 is small), you **must** refine the boundary: challenge whether the top label is right vs the runner-up, cite **golden-labels.md**, and give **`suggested_alternative`** = the second-highest code when appropriate.
+   - When you challenge a close-score case, include **pro/con reasoning** and **reverse-test** fields:
+     - `support_evidence`: why assigned label could still be valid (forward reasoning)
+     - `refute_evidence`: why alternative may be better (counter reasoning)
+     - `counterexample_test`: minimal contrastive rephrase test ("if rephrased to clearly satisfy alternative, should label change?")
+     - `margin`: numeric top1-top2 gap
+     - `must_challenge`: `true`
 
 Use **cloudbot/data/golden-labels.md** for precise boundary definitions (e.g. cognitive = task content; metacognitive = how we solve/monitor/plan). When challenging, cite the **decision rules** and **edge cases** in golden-labels.md (e.g. "Per golden-labels: 'how should we solve' = process → Metacognitive.planning, not Cognitive.").
 
@@ -73,7 +79,12 @@ Include **reason** for every challenge and every evidence request, tied to your 
       "assigned_label": "Cognitive.concept_exploration",
       "question": "Is this actually cognitive rather than metacognitive?",
       "reason": "Phrase focuses on how to solve, not what the concept is. Per golden-labels: content → Cognitive, process → Metacognitive.",
-      "suggested_alternative": "Metacognitive.planning"
+      "suggested_alternative": "Metacognitive.planning",
+      "margin": 0.42,
+      "must_challenge": true,
+      "support_evidence": "Could be content clarification under Cognitive if concept semantics dominate.",
+      "refute_evidence": "Span emphasizes process/approach, closer to Metacognitive.planning.",
+      "counterexample_test": "If rewritten as 'How should we solve this step-by-step?', would Cognitive still hold?"
     }
   ],
   "request_missing_evidence": [

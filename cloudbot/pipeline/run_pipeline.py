@@ -137,6 +137,7 @@ _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
         "how should we", "what steps", "plan", "strategy", "approach",
         "first we", "let's start by", "should we begin", "procedure for solving",
         "goal is", "order of steps", "it's okay", "it is okay",
+        "no, no, it is different", "it is different",
     )),
     ("Metacognitive.monitoring", (
         "on the right track", "are we", "progress", "move on", "next question",
@@ -231,6 +232,9 @@ def _semantic_proxy_scores(text: str) -> dict[str, float]:
         raw["Metacognitive.planning"] += 1.8
     if "it's okay" in t or "it is okay" in t:
         # Project-specific legacy mapping: planning-agree/disagree => Metacognitive.planning
+        raw["Metacognitive.planning"] += 2.1
+    if "no, no, it is different" in t or "it is different" in t:
+        # Project-specific legacy mapping: planning-disagree => Metacognitive.planning
         raw["Metacognitive.planning"] += 2.1
     if re.search(
         r"\b(on track|progress|next question|move on|pace|behind schedule|time left|are we)\b", t,
@@ -521,6 +525,41 @@ def _pick_final_label_from_ranked(
     return top_label
 
 
+def _counterexample_for_labels(assigned_label: str, alternative_label: str) -> str:
+    """
+    Build a minimal contrastive test so Boundary Critic can do reverse reasoning.
+    """
+    a = assigned_label or "current_label"
+    b = alternative_label or "alternative_label"
+    return (
+        f"If the utterance were rephrased to clearly satisfy {b} (and not {a}), "
+        "would the label still remain unchanged? If yes, boundary is likely overfit; if no, revise."
+    )
+
+
+def _build_pro_con_reasoning(
+    assigned_label: str,
+    alternative_label: str,
+    *,
+    margin: float | None = None,
+) -> dict[str, Any]:
+    """
+    Structured pro/con payload for Boundary Critic.
+    """
+    mtxt = f"{margin:.2f}" if isinstance(margin, (int, float)) else "n/a"
+    return {
+        "reasoning_mode": "pro_con",
+        "support_evidence": (
+            f"Pro({assigned_label}): current evidence can support this label under golden-label tier boundaries."
+        ),
+        "refute_evidence": (
+            f"Con({assigned_label}): nearby alternative {alternative_label} is plausible; "
+            f"close boundary signal suggests possible misassignment (margin={mtxt})."
+        ),
+        "counterexample_test": _counterexample_for_labels(assigned_label, alternative_label),
+    }
+
+
 def _sync_label_coder_and_adjudicator_from_scores(out: dict[str, Any]) -> None:
     """Set primary label + adjudicator final to highest-scoring code (when scores are informative)."""
     lc = out.get("label_coder")
@@ -601,6 +640,8 @@ def _ensure_boundary_critic_scores_close_challenge(out: dict[str, Any]) -> None:
     labs = lc.get("labels") or []
     if labs and isinstance(labs[0], dict):
         assigned = str(labs[0].get("label") or "")
+    margin_val = float(lc.get("label_scores_margin_top2") or 0.0)
+    pro_con = _build_pro_con_reasoning(assigned, str(second.get("label") or ""), margin=margin_val)
     challenges.append({
         "span_ref": 0,
         "assigned_label": assigned,
@@ -609,11 +650,14 @@ def _ensure_boundary_critic_scores_close_challenge(out: dict[str, Any]) -> None:
             "primary intent per golden-labels?"
         ),
         "reason": (
-            f"Scores are close (margin={lc.get('label_scores_margin_top2')}). "
+            f"Scores are close (margin={margin_val:.2f}). "
             f"Compare {top.get('label')} ({top.get('score')}) vs {second.get('label')} ({second.get('score')}). "
             "Adjust boundary if evidence supports the runner-up."
         ),
         "suggested_alternative": str(second.get("label") or ""),
+        "margin": round(margin_val, 3),
+        "must_challenge": True,
+        **pro_con,
     })
     bc["challenges"] = challenges
 
@@ -659,6 +703,8 @@ def _ensure_boundary_critic_ambiguity_challenge(out: dict[str, Any]) -> None:
     runner_up = ""
     if isinstance(ranked, list) and len(ranked) > 1 and isinstance(ranked[1], dict):
         runner_up = str(ranked[1].get("label") or "")
+    margin_val = float(lc.get("label_scores_margin_top2") or 0.0)
+    pro_con = _build_pro_con_reasoning(assigned, runner_up, margin=margin_val if margin_val > 0 else None)
 
     challenges.append(
         {
@@ -670,6 +716,9 @@ def _ensure_boundary_critic_ambiguity_challenge(out: dict[str, Any]) -> None:
                 "tier1/tier2 boundary using golden-labels rules."
             ),
             "suggested_alternative": runner_up,
+            "margin": round(margin_val, 3) if margin_val > 0 else None,
+            "must_challenge": True,
+            **pro_con,
         }
     )
     bc["challenges"] = challenges
@@ -909,10 +958,16 @@ def run_autocoding_pipeline(
             )
             break
     if "reasoning" in cleaned.lower() and "Metacognitive" in chosen:
+        alt = cand_list[1] if len(cand_list) > 1 else ""
+        pro_con = _build_pro_con_reasoning(chosen, alt, margin=abs(top_score - second_best))
         challenges.append({
             "assigned_label": chosen,
             "question": "Is this monitoring or evaluating?",
             "reason": "Checking reasoning can be either progress monitoring or solution evaluation.",
+            "suggested_alternative": alt,
+            "margin": round(abs(top_score - second_best), 3),
+            "must_challenge": True,
+            **pro_con,
         })
     boundary_critic = {
         "challenges": challenges,

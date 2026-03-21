@@ -12,6 +12,7 @@ from .format import (
     truncate,
     format_evidence_spans_full,
     format_full_prompt_section,
+    format_boundary_challenge_block,
     fenced_plain_text,
 )
 from .dispatcher import (
@@ -39,6 +40,7 @@ __all__ = [
     "truncate",
     "format_evidence_spans_full",
     "format_full_prompt_section",
+    "format_boundary_challenge_block",
     "fenced_plain_text",
     # Dispatcher (1 orchestrator + 4 display bots)
     "SIGNAL_EXTRACTOR",

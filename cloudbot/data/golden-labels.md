@@ -46,6 +46,17 @@ Use these criteria to **interpret and apply** labels consistently. All agents sh
 
 ---
 
+## Session context (上下文) — group, people, timestamp, scenario
+
+When **metadata** is provided (e.g. from CSV or Discord: `group`, `people`, `timestamp-mm`, `context` / condition tags like `no-gai`, `gai`, discussion labels), it is part of the **communication situation**. Do **not** label as if the utterance appeared in a vacuum.
+
+- **Use 上下文 to disambiguate short or fragmentary prompts.** A line like *"Naming and defining."* in a **group / study / discussion episode** often refers to **naming or labeling the task answer or option** (the solution product) → **`Cognitive.solution_development`**, not abstract concept exploration.
+- **Cognitive.solution_development vs Cognitive.concept_exploration:** If the episode is clearly about **doing the task together** (options, final answer, what to call the response) → favor **solution_development**. Reserve **concept_exploration** for talk whose **primary intent** is to clarify **meanings, definitions, or theory** (what a term *means* in general), not to label the group’s chosen answer.
+- **Multi-party cues:** `people` ≥ 2, or tags implying **pair/group work**, **discussion**, or **session segment**, increase the chance that terse cognitive cues are **task-product** oriented.
+- **Still ground in the prompt text:** 上下文 adjusts interpretation; it does not replace the need for at least one evidence span that fits the label.
+
+---
+
 ## Decision rules (for accuracy)
 
 Apply in order when in doubt:
@@ -54,6 +65,7 @@ Apply in order when in doubt:
 2. **Cognitive tier2:** About *concepts/definitions/learning* → concept_exploration. About *solutions, answers, task product* (naming, defining, analyzing the solution) → solution_development.
 3. **Metacognitive tier2:** About *how to approach or plan* → planning. About *progress, pace, on track* → monitoring. About *judging quality of solution/output* → evaluating.
 4. **No blanket default:** Do **not** assign `Cognitive.concept_exploration` unless the utterance is **mainly** about clarifying or exploring **concepts/meanings**. Laughter, thanks, coordination, metacognitive process talk, or solution/option talk should use the matching codes above—not concept_exploration as a catch-all.
+5. **With 上下文:** Apply the **Session context** section above when `group` / `people` / `timestamp` / `scenario` are present.
 
 ---
 
@@ -70,6 +82,7 @@ Apply in order when in doubt:
 | "You go first." | Coordinative.coordinate_procedures | Not Socio-emotional.encouragement |
 | "That’s hilarious!" | Socio-emotional.emotional_expression | Not Cognitive |
 | "Hahaha" / "哈哈哈" / "LOL" / "hhh" | Socio-emotional.emotional_expression | Not encouragement |
+| "Naming and defining." (with group/session tags, collaborative task) | Cognitive.solution_development | Not concept_exploration if 上下文 = joint task on answers/options |
 | "Thank you!" | Socio-emotional.encouragement | Not emotional_expression |
 | "It's okay." | Metacognitive.planning | Not Socio-emotional.encouragement |
 | "No, no, it is different." | Metacognitive.planning | Not Socio-emotional.emotional_expression |

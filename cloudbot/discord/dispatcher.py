@@ -25,6 +25,8 @@ from .format import (
     format_final_answer_summary,
     format_evidence_spans_full,
     format_full_prompt_section,
+    format_boundary_challenge_block,
+    fenced_plain_text,
 )
 from .pipeline_output import PipelineOutput
 
@@ -170,12 +172,11 @@ def _format_label_coder(data: dict[str, Any] | None) -> str:
 
 
 def _format_boundary_critic(data: dict[str, Any] | None) -> str:
-    """Format Boundary Critic output for Discord."""
+    """Format Boundary Critic output for Discord (full interaction: index + structured reasoning, no truncation)."""
     if not data:
-        return section("Boundary Critic", "_No output_")
-    parts = []
+        return section("🛡 Boundary Critic", "_No output_")
+    parts: list[str] = []
     challenges = data.get("challenges") or []
-    # Header summary for quick scan
     requests = data.get("request_missing_evidence") or []
     parts.append(
         section(
@@ -184,71 +185,48 @@ def _format_boundary_critic(data: dict[str, Any] | None) -> str:
         )
     )
     if challenges:
-        rows = []
-        for c in challenges[:15]:
+        rows: list[list[Any]] = []
+        for i, c in enumerate(challenges[:24], start=1):
             if isinstance(c, dict):
                 must = "Y" if c.get("must_challenge") else ""
                 rows.append([
-                    str(c.get("assigned_label", c.get("span_ref", "")))[:40],
-                    (c.get("question") or "")[:38],
-                    str(c.get("suggested_alternative") or "")[:34],
-                    str(c.get("margin") if c.get("margin") is not None else "")[:8],
+                    i,
+                    str(c.get("assigned_label", c.get("span_ref", ""))),
+                    str(c.get("suggested_alternative") or "—"),
+                    str(c.get("margin")) if c.get("margin") is not None else "—",
                     must,
                 ])
             else:
-                rows.append([str(c)[:40], "", "", "", ""])
+                rows.append([i, str(c), "—", "—", ""])
         parts.append(
             table_from_rows(
-                ["Label / span", "Question", "Alternative", "Margin", "Must"],
+                ["#", "Assigned label", "Alternative", "Margin", "Must"],
                 rows,
-                title="Challenges (overview)",
+                title="Challenges (index)",
             )
         )
-        # Show pro/con and reverse-test details in readable blocks.
-        details = []
-        for i, c in enumerate(challenges[:5], start=1):
-            if not isinstance(c, dict):
-                continue
-            lbl = str(c.get("assigned_label", c.get("span_ref", "")))
-            q = (c.get("question") or "").strip()
-            r = (c.get("reason") or "").strip()
-            alt = (c.get("suggested_alternative") or "").strip() or "_none_"
-            pro = (c.get("support_evidence") or "").strip()
-            con = (c.get("refute_evidence") or "").strip()
-            test = (c.get("counterexample_test") or "").strip()
-            margin = c.get("margin")
-            if pro or con or test or q or r:
-                block = (
-                    f"#{i} `{lbl}`\n"
-                    f"Q: {q[:140]}\n"
-                    f"Reason: {r[:180]}\n"
-                    f"Alternative: `{alt}`"
-                )
-                if margin is not None:
-                    block += f"\nMargin: `{margin}`"
-                if pro:
-                    block += f"\nPro: {pro[:180]}"
-                if con:
-                    block += f"\nCon: {con[:180]}"
-                if test:
-                    block += f"\nReverse test: {test[:180]}"
-                details.append(block)
-        if details:
-            parts.append(bullet_list(details, header="Reasoning details"))
+        detail_blocks: list[str] = []
+        for i, c in enumerate(challenges[:24], start=1):
+            if isinstance(c, dict):
+                detail_blocks.append(format_boundary_challenge_block(c, i))
+            else:
+                detail_blocks.append(f"**━━ Challenge {i}** (non-structured)\n{fenced_plain_text(str(c))}")
+        parts.append("**Structured reasoning (full)**\n\n" + "\n\n".join(detail_blocks))
     else:
         parts.append(section("Challenges", "_None_"))
     if requests:
         rows = []
-        for r in requests[:10]:
+        for r in requests[:12]:
             if isinstance(r, dict):
                 rows.append([
-                    str(r.get("part_of_prompt") or "")[:44],
-                    str(r.get("reason") or "")[:90],
+                    str(r.get("part_of_prompt") or ""),
+                    str(r.get("reason") or ""),
                 ])
             else:
-                rows.append(["", str(r)[:90]])
+                rows.append(["", str(r)])
         parts.append(table_from_rows(["Missing part", "Reason"], rows, title="Request missing evidence"))
-    return "\n\n".join(parts) if parts else section("🛡 Boundary Critic", "_No output_")
+    body = "\n\n".join(parts) if parts else "_No output_"
+    return section("🛡 Boundary Critic", body)
 
 
 def _split_labels(cell: str) -> set[str]:

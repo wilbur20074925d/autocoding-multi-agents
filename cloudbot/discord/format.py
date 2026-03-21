@@ -178,6 +178,38 @@ def bullet_list(items: list[str], *, header: str | None = None) -> str:
     return body
 
 
+def format_boundary_challenge_block(c: dict[str, Any], index: int) -> str:
+    """
+    One Boundary Critic challenge with full Q / reason / pro / con / reverse test (no mid-field truncation).
+    """
+    lbl = str(c.get("assigned_label") or c.get("span_ref") or "").strip() or "—"
+    q = (c.get("question") or "").strip()
+    r = (c.get("reason") or "").strip()
+    alt = (c.get("suggested_alternative") or "").strip() or "—"
+    pro = (c.get("support_evidence") or "").strip()
+    con = (c.get("refute_evidence") or "").strip()
+    test = (c.get("counterexample_test") or "").strip()
+    margin = c.get("margin")
+    must = c.get("must_challenge")
+    lines = [
+        f"**━━ Challenge {index} · `{lbl}`**",
+        f"**Question:** {q}" if q else "**Question:** _—_",
+        f"**Reason:** {r}" if r else "**Reason:** _—_",
+        f"**Suggested alternative:** `{alt}`",
+    ]
+    if margin is not None:
+        lines.append(f"**Score margin (top1−top2):** `{margin}`")
+    if must is not None:
+        lines.append(f"**Must challenge:** `{'yes' if must else 'no'}`")
+    if pro:
+        lines.append(f"**Pro (support):** {pro}")
+    if con:
+        lines.append(f"**Con (against):** {con}")
+    if test:
+        lines.append(f"**Reverse / contrast test:** {test}")
+    return "\n".join(lines)
+
+
 def key_value_pairs(
     pairs: list[tuple[str, Any]],
     *,

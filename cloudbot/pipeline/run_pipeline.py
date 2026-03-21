@@ -93,6 +93,110 @@ def _llm_enabled() -> bool:
     return load_config_from_env() is not None
 
 
+def _normalize_session_context(context: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Flatten CSV / Discord metadata (group, people, timestamp, context) for heuristics and LLM.
+    `context` is often a scenario tag (e.g. no-gai, discussion) — 上下文 for disambiguation.
+    """
+    ctx = context or {}
+    group = str(ctx.get("group") or "").strip()
+    people_raw = str(ctx.get("people") or "").strip()
+    timestamp = str(
+        ctx.get("timestamp") or ctx.get("timestamp-mm") or ctx.get("timestamp_mm") or "",
+    ).strip()
+    scenario = str(ctx.get("context") or "").strip()
+    blob = f"{group} {people_raw} {timestamp} {scenario}".lower()
+    people_n: int | None = None
+    if people_raw.isdigit():
+        people_n = int(people_raw)
+    return {
+        "group": group,
+        "people": people_raw,
+        "people_count": people_n,
+        "timestamp": timestamp,
+        "scenario": scenario,
+        "blob": blob,
+    }
+
+
+def _session_implies_task_oriented_discussion(norm: dict[str, Any]) -> bool:
+    """
+    True when metadata suggests an interaction / study session (上下文), not isolated free text.
+    Used to disambiguate short prompts (e.g. 'Naming and defining.') toward solution vs concept.
+    """
+    if (norm.get("people_count") or 0) >= 2:
+        return True
+    b = norm.get("blob") or ""
+    if norm.get("group") and re.search(r"(?i)^g\d+|group\s*\d", str(norm.get("group"))):
+        return True
+    if re.search(r"\bg\d+\b", b):
+        return True
+    tags = (
+        "no-gai",
+        "gai",
+        "discussion",
+        "discuss",
+        "collaborat",
+        "pair",
+        "session",
+        "dialogue",
+        "communication",
+        "group work",
+        "joint",
+        "together",
+        "chat",
+        "in-class",
+        "task",
+    )
+    return any(t in b for t in tags)
+
+
+def _apply_session_context_cognitive_bias(
+    raw: dict[str, float],
+    t: str,
+    norm: dict[str, Any],
+) -> None:
+    """
+    When 上下文 indicates a collaborative/task discussion, nudge short utterances that sound like
+    naming/labeling the *answer* toward Cognitive.solution_development (vs concept_exploration).
+    """
+    if not _session_implies_task_oriented_discussion(norm):
+        return
+    n = len(t.strip())
+    if n > 160:
+        return
+    tl = t.lower()
+    # Phrases common in group work: naming/labeling the solution or option.
+    if re.search(r"\bnaming\s+and\s+defining\b", tl):
+        raw["Cognitive.solution_development"] += 2.85
+        raw["Cognitive.concept_exploration"] = max(
+            0.0,
+            raw.get("Cognitive.concept_exploration", 0.0) - 1.35,
+        )
+        return
+    if re.search(r"\b(naming|labelling|labeling)\b", tl) and re.search(r"\bdefin", tl):
+        raw["Cognitive.solution_development"] += 2.35
+        raw["Cognitive.concept_exploration"] = max(
+            0.0,
+            raw.get("Cognitive.concept_exploration", 0.0) - 1.0,
+        )
+        return
+    if re.search(
+        r"\b(name|label|identify)\s+(the|our|this|that)\s+(answer|option|solution|choice|response)\b",
+        tl,
+    ):
+        raw["Cognitive.solution_development"] += 2.1
+        return
+    if re.search(r"\b(final answer|which option|pick (one|an option)|our solution)\b", tl):
+        raw["Cognitive.solution_development"] += 1.65
+    # Multi-party + very short task cue → slight solution tilt
+    if n <= 48 and (norm.get("people_count") or 0) >= 2 and re.search(
+        r"\b(define|naming|label|answer|option|solution)\b",
+        tl,
+    ):
+        raw["Cognitive.solution_development"] += 1.1
+
+
 # --- Label scoring: semantic (LLM) + semantic proxy (no-LLM fallback) ---
 # Each taxonomy code gets an independent score in [0, 5.00] with 2 decimal places.
 # Heuristic path uses tier/tier2 cues + smoothing so prompts rarely collapse to all zeros.
@@ -211,15 +315,19 @@ def _baseline_semantic_spread(t: str, codes: list[str]) -> dict[str, float]:
     }
 
 
-def _semantic_proxy_scores(text: str) -> dict[str, float]:
+def _semantic_proxy_scores(
+    text: str,
+    context: dict[str, Any] | None = None,
+) -> dict[str, float]:
     """
     Semantic proxy (no LLM): combine phrase cues + tier-level discourse signals, map to 0–5 per label.
-    Designed so scores are rarely all zero — uses scaling to SCORE_MAX for the strongest dimension.
+    Optional **context** (group, people, timestamp, scenario) adjusts short/ambiguous utterances using 上下文.
     """
     codes = _taxonomy_codes()
     t = (text or "").strip().lower()
     if not t:
         return {c: _clamp_round_score(0.5) for c in codes}
+    norm = _normalize_session_context(context)
 
     raw: dict[str, float] = {c: 0.0 for c in codes}
     # Text-only laughter (e.g. "hhh", "hhhh") — not matched by substring "haha".
@@ -286,6 +394,8 @@ def _semantic_proxy_scores(text: str) -> dict[str, float]:
         raw["Cognitive.concept_exploration"] += 0.7
         raw["Cognitive.solution_development"] += 0.6
 
+    _apply_session_context_cognitive_bias(raw, t, norm)
+
     mx = max(raw.values())
     if mx <= 0:
         return _baseline_semantic_spread(t, codes)
@@ -315,12 +425,15 @@ def _best_label_from_scores(scores: dict[str, float]) -> tuple[str, float]:
     return best[0], best[1]
 
 
-def _infer_label_from_prompt(text: str) -> tuple[str, list[str], dict[str, float]]:
+def _infer_label_from_prompt(
+    text: str,
+    context: dict[str, Any] | None = None,
+) -> tuple[str, list[str], dict[str, float]]:
     """
     Returns (chosen_label, ranked_candidates_desc, scores).
     Picks label from semantic proxy scores (0–5) — does **not** default to concept_exploration only.
     """
-    scores = _semantic_proxy_scores(text)
+    scores = _semantic_proxy_scores(text, context)
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     chosen, top = ranked[0][0], ranked[0][1]
     stripped = (text or "").strip().lower()
@@ -417,14 +530,27 @@ def _sentiment_tag(segment: str) -> str:
     return "neutral_task"
 
 
-def _build_signal_extractor_output(cleaned: str) -> dict[str, Any]:
+def _build_signal_extractor_output(
+    cleaned: str,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     segments = _segment_prompt_for_extraction(cleaned)
     evidence_spans: list[dict[str, Any]] = []
     candidate_signals: list[dict[str, Any]] = []
     ambiguity: list[dict[str, Any]] = []
+    norm = _normalize_session_context(context)
+    ctx_note = ""
+    if _session_implies_task_oriented_discussion(norm) and (
+        norm.get("group") or norm.get("scenario") or norm.get("timestamp")
+    ):
+        ctx_note = (
+            f" Session 上下文: group={norm.get('group') or '—'}, "
+            f"people={norm.get('people') or '—'}, "
+            f"scenario={norm.get('scenario') or '—'}."
+        )
 
     for idx, (seg, start, end) in enumerate(segments):
-        chosen, cand_list, score_map = _infer_label_from_prompt(seg)
+        chosen, cand_list, score_map = _infer_label_from_prompt(seg, context)
         ranked = sorted(score_map.items(), key=lambda kv: (-kv[1], kv[0]))
         top = ranked[0][1] if ranked else 0.0
         second = ranked[1][1] if len(ranked) > 1 else 0.0
@@ -436,6 +562,7 @@ def _build_signal_extractor_output(cleaned: str) -> dict[str, Any]:
                 "end": end,
                 "reason": (
                     f"Segmented evidence (sentiment={s_tag}); preserve local intent before final label arbitration."
+                    + ctx_note
                 ),
             }
         )
@@ -500,12 +627,14 @@ def _merge_label_scores_with_heuristic(
     lc: dict[str, Any],
     cleaned_prompt: str,
     allowed_codes: list[str],
+    *,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, float]:
     """
     LLM scores = semantic relevance (must be 0.00–5.00). Clamp and merge with semantic proxy
     when the model returns missing, invalid, or near-all-zero scores.
     """
-    heur = _semantic_proxy_scores(cleaned_prompt)
+    heur = _semantic_proxy_scores(cleaned_prompt, context)
     raw = lc.get("label_scores")
     if not isinstance(raw, dict):
         return heur
@@ -554,6 +683,91 @@ def _counterexample_for_labels(assigned_label: str, alternative_label: str) -> s
         f"If the utterance were rephrased to clearly satisfy {b} (and not {a}), "
         "would the label still remain unchanged? If yes, boundary is likely overfit; if no, revise."
     )
+
+
+def _is_close_score_boundary_challenge(c: dict[str, Any]) -> bool:
+    """True if this challenge is about close top-two scores / ambiguous tier boundary."""
+    q = (c.get("question") or "").lower()
+    r = (c.get("reason") or "").lower()
+    blob = f"{q} {r}"
+    needles = (
+        "top two",
+        "close score",
+        "close top",
+        "scores are close",
+        "ambiguous close",
+        "close top-two",
+        "semantic-fit scores are close",
+        "margin=",
+    )
+    return any(n in blob for n in needles)
+
+
+def _merge_challenge_dicts(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """Merge two challenge dicts; prefer non-empty fields and longer text."""
+    out = dict(a)
+    for k, v in b.items():
+        if v is None or v == "":
+            continue
+        old = out.get(k)
+        if old is None or old == "":
+            out[k] = v
+        elif isinstance(old, str) and isinstance(v, str) and len(v) > len(old):
+            out[k] = v
+    return out
+
+
+def _dedupe_boundary_critic_challenges(bc: dict[str, Any]) -> None:
+    """Collapse duplicate close-score challenges (same label + alternative)."""
+    ch = bc.get("challenges")
+    if not isinstance(ch, list) or len(ch) < 2:
+        return
+    out: list[Any] = []
+    for c in ch:
+        if not isinstance(c, dict):
+            out.append(c)
+            continue
+        if not _is_close_score_boundary_challenge(c):
+            out.append(c)
+            continue
+        al = str(c.get("assigned_label") or "")
+        alt = str(c.get("suggested_alternative") or "")
+        merged = False
+        for i, e in enumerate(out):
+            if not isinstance(e, dict) or not _is_close_score_boundary_challenge(e):
+                continue
+            if al == str(e.get("assigned_label") or "") and alt == str(e.get("suggested_alternative") or ""):
+                out[i] = _merge_challenge_dicts(e, c)
+                merged = True
+                break
+        if not merged:
+            out.append(c)
+    bc["challenges"] = out
+
+
+def _enrich_close_score_challenges_pro_con(bc: dict[str, Any], lc: dict[str, Any]) -> None:
+    """Fill pro/con/reverse-test when a close-score challenge is missing structured fields."""
+    ch = bc.get("challenges")
+    if not isinstance(ch, list):
+        return
+    ranked = lc.get("label_scores_ranked") or []
+    if len(ranked) < 2:
+        return
+    top, second = ranked[0], ranked[1]
+    if not isinstance(top, dict) or not isinstance(second, dict):
+        return
+    margin_val = float(lc.get("label_scores_margin_top2") or 0.0)
+    for c in ch:
+        if not isinstance(c, dict) or not _is_close_score_boundary_challenge(c):
+            continue
+        if c.get("support_evidence") and c.get("counterexample_test"):
+            continue
+        assigned = str(c.get("assigned_label") or top.get("label") or "")
+        alt = str(c.get("suggested_alternative") or second.get("label") or "")
+        extra = _build_pro_con_reasoning(assigned, alt, margin=margin_val)
+        for k, v in extra.items():
+            if c.get(k) in (None, ""):
+                c[k] = v
 
 
 def _build_pro_con_reasoning(
@@ -628,7 +842,12 @@ def _ensure_label_coder_full_scores(
     if not isinstance(lc, dict):
         lc = {}
         out["label_coder"] = lc
-    merged = _merge_label_scores_with_heuristic(lc, cleaned_prompt, allowed_codes)
+    merged = _merge_label_scores_with_heuristic(
+        lc,
+        cleaned_prompt,
+        allowed_codes,
+        context=out.get("context"),
+    )
     _enrich_label_coder_scores(lc, merged, allowed_codes=allowed_codes)
 
 
@@ -650,10 +869,8 @@ def _ensure_boundary_critic_scores_close_challenge(out: dict[str, Any]) -> None:
     challenges = bc.get("challenges")
     if not isinstance(challenges, list):
         challenges = []
-    if any(
-        isinstance(c, dict) and "margin=" in (c.get("reason") or "")
-        for c in challenges
-    ):
+    # Avoid duplicating heuristic/LLM challenges that already cover close scores.
+    if any(isinstance(c, dict) and _is_close_score_boundary_challenge(c) for c in challenges):
         return
     assigned = ""
     labs = lc.get("labels") or []
@@ -755,6 +972,11 @@ def _postprocess_pipeline_output(
     _sync_label_coder_and_adjudicator_from_scores(out)
     _ensure_boundary_critic_scores_close_challenge(out)
     _ensure_boundary_critic_ambiguity_challenge(out)
+    bc = out.get("boundary_critic")
+    lc = out.get("label_coder")
+    if isinstance(bc, dict) and isinstance(lc, dict):
+        _dedupe_boundary_critic_challenges(bc)
+        _enrich_close_score_challenges_pro_con(bc, lc)
 
 
 def _maybe_repair_concept_exploration_bias(
@@ -766,7 +988,7 @@ def _maybe_repair_concept_exploration_bias(
     If the model labels everything Cognitive.concept_exploration but content scores favor
     another code, replace final/adjudicator labels with the heuristic best (when confident).
     """
-    scores = _semantic_proxy_scores(cleaned_prompt)
+    scores = _semantic_proxy_scores(cleaned_prompt, out.get("context"))
     best_h, best_s = _best_label_from_scores(scores)
     concept_s = scores.get("Cognitive.concept_exploration", 0.0)
     if best_h == "Cognitive.concept_exploration" or best_s < 2.25:
@@ -813,6 +1035,28 @@ def _maybe_repair_concept_exploration_bias(
         cands[0]["reason"] = "Ranked candidates from content-based scoring; avoids default concept_exploration."
 
 
+def _format_session_context_for_llm(context: dict[str, Any] | None) -> str:
+    """Structured 上下文 block for the LLM user message (disambiguation)."""
+    n = _normalize_session_context(context)
+    if not any([n.get("group"), n.get("people"), n.get("timestamp"), n.get("scenario")]):
+        return (
+            "### Session context (上下文)\n"
+            "_No metadata provided — infer labels from the prompt text alone._"
+        )
+    return "\n".join(
+        [
+            "### Session context (上下文) — MUST use for disambiguation",
+            f"- **group:** {n.get('group') or '—'}",
+            f"- **people:** {n.get('people') or '—'}",
+            f"- **timestamp / segment:** {n.get('timestamp') or '—'}",
+            f"- **scenario / condition tag:** {n.get('scenario') or '—'}",
+            "",
+            "When this metadata indicates a **communication or study episode**, very short utterances may refer to the **joint task** (e.g. naming an answer, picking an option). "
+            "Then prefer **Cognitive.solution_development** over **Cognitive.concept_exploration** for phrases like *Naming and defining.* unless the speaker is clearly asking for abstract conceptual definitions.",
+        ]
+    )
+
+
 def _run_llm_pipeline(cleaned_prompt: str, context: dict[str, Any]) -> dict[str, Any] | None:
     cfg = load_config_from_env()
     if cfg is None:
@@ -821,6 +1065,7 @@ def _run_llm_pipeline(cleaned_prompt: str, context: dict[str, Any]) -> dict[str,
     allowed = _taxonomy_codes()
     golden = _golden_summary()
     sys_prompt = _system_prompt()
+    ctx_block = _format_session_context_for_llm(context)
 
     # Keep output schema aligned with Discord dispatcher expectations.
     instruction = f"""
@@ -852,11 +1097,12 @@ You will simulate the 4-agent autocoding pipeline and output ONE JSON object wit
 
 Rules:
 - All four agents start with EMPTY memory for this run. Do not use any prior conversation state.
-- Use ONLY the current prompt/context and provided artifacts (taxonomy + golden labels).
+- Use ONLY the current prompt and **session context (上下文)** (group, people, timestamp, scenario) plus provided artifacts (taxonomy + golden labels). **Do not ignore metadata:** it situates the utterance in a communication scenario.
 - Final labels MUST be chosen from this allowed taxonomy list:
 {allowed}
 - **Labeling procedure (mandatory):** For each span, decide **Tier1 first** (Cognitive vs Metacognitive vs Coordinative vs Socio-emotional), then **Tier2** within that tier. The label must match the **primary intent** of the quoted evidence, not a generic default.
 - **Do NOT default to Cognitive.concept_exploration.** Use it only when the utterance is mainly about **concepts/definitions/learning meanings** (e.g. what a term means, clarifying a concept). Do **not** use it for: pure laughter/reactions, thanks/praise, task splitting/roles, planning how to solve, checking progress, judging output quality, or picking/correct answers—those map to other codes in the list above.
+- **Cognitive tier2 with 上下文:** When session tags (e.g. group id, no-gai/gai, discussion) suggest **collaborative task talk**, terse lines like *Naming and defining.* usually mean **naming/labeling the solution or answer** → **Cognitive.solution_development**, not abstract concept exploration.
 - **Evidence:** Every Label Coder and Adjudicator label must cite a **verbatim substring** of the prompt in `evidence_used` / rationale; candidate_signals should list 1–3 plausible codes when ambiguous.
 - **Signal Extractor precision:** split the prompt into multiple minimal evidence spans (sentence/clause level), attach precise start/end offsets, keep each span verbatim, and include sentiment-aware rationale per span (e.g. affective/supportive/neutral_task). Do not collapse to one full-span evidence unless the prompt is too short to segment.
 - **Label Coder must output `label_scores`:** an object with **every** code in the allowed list as a key exactly once. Each value must be a number from **0.00 to 5.00** (two decimals), representing **semantic fit** of the utterance to that label (intent, not keyword counts). **5.00** = strongest match for that category; **0.00** = no meaningful fit. Judge each label **independently** by meaning (cognitive vs metacognitive vs coordinative vs socio-emotional, then tier2). The pipeline ranks codes and sets the **final label to the highest score** when informative; if #1 and #2 are **close** (small margin on this 0–5 scale), the Boundary Critic refines the boundary.
@@ -872,7 +1118,10 @@ Golden-labels criteria excerpt:
 
     messages = [
         {"role": "system", "content": sys_prompt or "You are an autocoding pipeline."},
-        {"role": "user", "content": f"Context: {context}\n\nPrompt:\n{cleaned_prompt}\n\n{instruction}"},
+        {
+            "role": "user",
+            "content": f"{ctx_block}\n\n**Prompt:**\n{cleaned_prompt}\n\n{instruction}",
+        },
     ]
 
     try:
@@ -920,12 +1169,12 @@ def run_autocoding_pipeline(
         if llm_out is not None:
             return llm_out
 
-    chosen, cand_list, score_map = _infer_label_from_prompt(cleaned)
+    chosen, cand_list, score_map = _infer_label_from_prompt(cleaned, context)
     top_score = score_map.get(chosen, 0.0)
     second_best = sorted(score_map.items(), key=lambda kv: -kv[1])[1][1] if len(score_map) > 1 else 0.0
 
     # --- Signal Extractor ---
-    signal_extractor = _build_signal_extractor_output(cleaned)
+    signal_extractor = _build_signal_extractor_output(cleaned, context)
     # Keep prior whole-prompt ambiguity signal so downstream behavior remains compatible.
     if (
         top_score > 0.01
@@ -945,6 +1194,15 @@ def run_autocoding_pipeline(
         f"Tier1/tier2 from content scoring: primary={chosen} "
         f"(score={top_score:.1f}). Not defaulted to concept_exploration unless cues match."
     )
+    _norm_h = _normalize_session_context(context)
+    if _session_implies_task_oriented_discussion(_norm_h) and (
+        _norm_h.get("group") or _norm_h.get("scenario") or _norm_h.get("timestamp")
+    ):
+        rationale += (
+            f" Session 上下文 applied: group={_norm_h.get('group') or '—'}, "
+            f"people={_norm_h.get('people') or '—'}, "
+            f"scenario={_norm_h.get('scenario') or '—'} (see golden-labels Session context)."
+        )
     label_coder = {
         "labels": [
             {
@@ -960,22 +1218,8 @@ def run_autocoding_pipeline(
 
     # --- Boundary Critic ---
     challenges: list[dict[str, Any]] = []
-    # Enforce challenge when extractor already marks close-score ambiguity.
-    for a in signal_extractor.get("ambiguity", []):
-        if not isinstance(a, dict):
-            continue
-        reason = str(a.get("reason") or "").lower()
-        if "close top-two" in reason or "top two" in reason:
-            challenges.append(
-                {
-                    "span_ref": int(a.get("span_ref", 0)),
-                    "assigned_label": chosen,
-                    "question": "Top two scores are close — should this label be revised?",
-                    "reason": "Extractor ambiguity indicates close scores; refine boundary by golden-labels criteria.",
-                    "suggested_alternative": cand_list[1] if len(cand_list) > 1 else "",
-                }
-            )
-            break
+    # Close-score / extractor ambiguity challenges are added in _postprocess via
+    # _ensure_boundary_critic_scores_close_challenge (avoids duplicate shallow challenges).
     if "reasoning" in cleaned.lower() and "Metacognitive" in chosen:
         alt = cand_list[1] if len(cand_list) > 1 else ""
         pro_con = _build_pro_con_reasoning(chosen, alt, margin=abs(top_score - second_best))

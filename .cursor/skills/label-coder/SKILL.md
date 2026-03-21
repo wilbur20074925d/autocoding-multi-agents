@@ -19,7 +19,7 @@ Second agent in the pipeline. You take the **original prompt** and **extracted e
 - **Original user prompt**
 - **Signal Extractor output**: evidence spans, candidate signals, ambiguity flags
 - **Golden label** (when provided): primary target; justify from evidence.
-- **Context metadata** (when available): **group**, **timestamp-mm**, **people**, **context**—use when assigning labels (e.g. who is speaking, session, condition), especially for coordinative or socio-emotional codes.
+- **Context metadata (上下文)** (when available): **group**, **timestamp-mm**, **people**, **context** / condition tags—use for **all** tier1/tier2 decisions when the prompt is short or ambiguous. In a **communication / study episode**, fragments like *Naming and defining.* often mean **naming the task answer** → **`Cognitive.solution_development`**, not `Cognitive.concept_exploration`. See **golden-labels.md** → “Session context (上下文)”.
 
 ## Outputs (to Boundary Critic, then Adjudicator)
 
@@ -37,8 +37,8 @@ Labels must come from **cloudbot/data/label-taxonomy.csv** (exact spelling: e.g.
 1. **When a golden label is provided, target it**
    - Assign the golden label when at least one evidence span supports it; cite that span. If no span supports it, note the discrepancy and still prefer the golden label unless you are revising after a Boundary Critic challenge.
 
-2. **Use context metadata when provided**
-   - Use **group**, **timestamp-mm**, **people**, **context** to support or qualify labels (e.g. who spoke, when in the session), especially for coordinative or socio-emotional codes.
+2. **Use context metadata when provided (required for terse prompts)**
+   - Use **group**, **timestamp-mm**, **people**, **context** to support or qualify labels: not only coordinative/socio-emotional, but also **Cognitive tier2** (e.g. solution vs concept) when the utterance is a short fragment. Cross-check **golden-labels.md** “Session context (上下文)”.
 
 3. **Use only provided evidence**
    - Base every label on at least one evidence span from the Signal Extractor. If evidence is missing for a part of the prompt, assign no label for that part or mark uncertain; do not invent spans.

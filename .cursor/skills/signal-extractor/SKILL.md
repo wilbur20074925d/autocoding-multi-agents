@@ -17,7 +17,7 @@ First agent in the autocoding pipeline. You produce **evidence** and **candidate
 ## Inputs
 
 - **Original user prompt** (full text to be labeled)
-- **Context metadata** (when available): **group**, **timestamp-mm**, **people**, and optionally **context**. Use these to inform extraction (e.g. participants, session segment, condition) and to disambiguate coordinative vs socio-emotional or ordering of utterances.
+- **Context metadata (上下文)** (when available): **group**, **timestamp-mm**, **people**, and **context** / condition tags. Use these to situate the prompt in a **communication scenario**—not only for coordinative vs socio-emotional, but also to list **plausible cognitive candidates** for fragments (e.g. *Naming and defining.* + group/session tags may favor **`Cognitive.solution_development`** among candidates). See **golden-labels.md** “Session context (上下文)”.
 
 ## Outputs (to Label Coder)
 
@@ -32,7 +32,7 @@ Use **cloudbot/data/label-taxonomy.csv** for valid codes. Use **cloudbot/data/go
 ## Instructions
 
 1. **Use context metadata when provided**
-   - If **group**, **timestamp-mm**, **people**, or **context** are given, use them to refine candidate signals (e.g. multi-party vs single speaker, session segment, condition).
+   - If **group**, **timestamp-mm**, **people**, or **context** are given, use them to refine candidate signals (e.g. multi-party vs single speaker, session segment, condition, **task-product vs abstract definition** for short cognitive spans).
 
 2. **Extract evidence spans precisely**
    - For each relevant part of the prompt, output the **exact** span (verbatim quote or start/end offset).

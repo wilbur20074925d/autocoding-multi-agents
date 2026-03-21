@@ -25,6 +25,7 @@ Adjudicator        → final arbitration; optionally trigger one retry to Critic
 - **Evidence**: All labels must be grounded in evidence spans from the Signal Extractor; the Boundary Critic challenges without classifying from scratch; the Adjudicator reads all outputs before deciding.
 - **Traceability**: Label Coder and Adjudicator outputs should be traceable back to evidence spans and to the original prompt.
 - **Socio-emotional calibration**: Text laughter (e.g. **"hhh"**, "hahaha", "LOL") → `Socio-emotional.emotional_expression`. Sharing personal background or identity relevant to rapport (e.g. **"I actually study developmental science, so I'm super aware."**) → `Socio-emotional.self_disclosure`, not `Cognitive.concept_exploration` unless the utterance is mainly about explaining task concepts.
+- **Session context (上下文):** When **group**, **people**, **timestamp**, or **scenario/condition** metadata is provided, treat it as part of the communication situation. Use it to disambiguate **short prompts** (e.g. *Naming and defining.* in a study/discussion row often targets **naming the answer** → `Cognitive.solution_development`, not generic `Cognitive.concept_exploration`). See **cloudbot/data/golden-labels.md** (“Session context”).
 
 ## Agent Roles (summary)
 

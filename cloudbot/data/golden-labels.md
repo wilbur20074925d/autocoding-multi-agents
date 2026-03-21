@@ -71,7 +71,7 @@ Apply in order when in doubt:
 | "That’s hilarious!" | Socio-emotional.emotional_expression | Not Cognitive |
 | "Hahaha" / "哈哈哈" / "LOL" / "hhh" | Socio-emotional.emotional_expression | Not encouragement |
 | "Thank you!" | Socio-emotional.encouragement | Not emotional_expression |
-| "It's okay." | Socio-emotional.encouragement | Not Metacognitive.planning |
+| "It's okay." | Metacognitive.planning | Not Socio-emotional.encouragement |
 | "I’ve worked as a TA before." | Socio-emotional.self_disclosure | Not Cognitive.concept_exploration |
 
 ---
@@ -108,6 +108,7 @@ Use these as the **default reference examples** for consistent human coding and 
   - "How should we solve this question?"
   - "What steps should we take first?"
   - "Should we start by defining the concept or by checking options?"
+  - "It's okay." (legacy `planning-agree` maps to planning)
 - **Near-miss (NOT this)**
   - "Are we on the right track?" → Metacognitive.monitoring
   - "Is our solution correct?" / "Does our explanation make sense?" → Metacognitive.evaluating
@@ -165,11 +166,11 @@ Use these as the **default reference examples** for consistent human coding and 
 
 - **Positive**
   - "Good job."
-  - "It's okay."
   - "Don't worry, we can do it."
   - "Nice idea—keep going."
 - **Near-miss**
   - "Yes, because..." → Usually Cognitive.* or Metacognitive.* (not encouragement)
+  - "It's okay." → Metacognitive.planning (legacy planning-agree)
 
 ### Socio-emotional.self_disclosure
 
@@ -190,7 +191,7 @@ Use **label-taxonomy.csv** for the exact list. Common mappings:
 |--------------------|---------------------|
 | concept\exploration-ask / concept\exploration-answer / concept\exploration-give / ... | Cognitive.concept_exploration (tier3 ignored in latest scheme) |
 | solution\development-* | Cognitive.solution_development |
-| planning-* | Metacognitive.planning |
+| planning-* / planning-agree / planning-disagree | Metacognitive.planning |
 | monitoring-* | Metacognitive.monitoring |
 | evaluating-* | Metacognitive.evaluating |
 | coordinate\procedure-* | Coordinative.coordinate_procedures |

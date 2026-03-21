@@ -23,7 +23,7 @@ import asyncio
 import csv
 import os
 import re
-from io import StringIO
+from io import BytesIO, StringIO
 from typing import Any
 
 import discord
@@ -273,11 +273,16 @@ class ControllerBot(discord.Client):
 
         channel_id = message.channel.id
         loop = asyncio.get_event_loop()
+        predicted_col = "predicted_label_multi_agents"
+        output_rows: list[dict[str, Any]] = []
 
         # Process one row at a time; do not start next until previous completes.
         for i, row in enumerate(rows, start=1):
+            row_out = dict(row)
+            row_out[predicted_col] = ""
             sentence = (row.get("sentence") or row.get("prompt") or "").strip()
             if not sentence:
+                output_rows.append(row_out)
                 continue
 
             group = (row.get("group") or "").strip()
@@ -333,10 +338,33 @@ class ControllerBot(discord.Client):
                     predicted = (first.get("label") if isinstance(first, dict) else str(first)) if first else None
             except Exception:
                 predicted = None
+            row_out[predicted_col] = (predicted or "").strip()
+            output_rows.append(row_out)
 
             await message.channel.send(
                 format_hc_check(predicted=predicted, hc1=hc1, hc2=hc2)
             )
+
+        # After all rows are processed, upload a merged CSV:
+        # original columns + predicted labels from current multi-agent pipeline.
+        if output_rows:
+            fieldnames = list(rows[0].keys())
+            if predicted_col not in fieldnames:
+                fieldnames.append(predicted_col)
+            out_buf = StringIO()
+            writer = csv.DictWriter(out_buf, fieldnames=fieldnames)
+            writer.writeheader()
+            for r in output_rows:
+                writer.writerow({k: r.get(k, "") for k in fieldnames})
+
+            src_name = (att.filename or "input.csv").rsplit(".", 1)[0]
+            out_name = f"{src_name}_with_predicted_labels.csv"
+            out_bytes = BytesIO(out_buf.getvalue().encode("utf-8"))
+            out_bytes.seek(0)
+            await message.channel.send(
+                "CSV labeling completed. Uploading merged CSV with predicted labels."
+            )
+            await message.channel.send(file=discord.File(out_bytes, filename=out_name))
 
     async def _handle_training_csv(self, message: Message) -> None:
         """

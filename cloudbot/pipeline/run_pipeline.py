@@ -136,7 +136,7 @@ _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("Metacognitive.planning", (
         "how should we", "what steps", "plan", "strategy", "approach",
         "first we", "let's start by", "should we begin", "procedure for solving",
-        "goal is", "order of steps",
+        "goal is", "order of steps", "it's okay", "it is okay",
     )),
     ("Metacognitive.monitoring", (
         "on the right track", "are we", "progress", "move on", "next question",
@@ -229,6 +229,9 @@ def _semantic_proxy_scores(text: str) -> dict[str, float]:
     # Discourse-level semantic cues (not single-keyword only)
     if re.search(r"\b(how should|what steps|strategy|approach|plan|first we|let's start|procedure)\b", t):
         raw["Metacognitive.planning"] += 1.8
+    if "it's okay" in t or "it is okay" in t:
+        # Project-specific legacy mapping: planning-agree/disagree => Metacognitive.planning
+        raw["Metacognitive.planning"] += 2.1
     if re.search(
         r"\b(on track|progress|next question|move on|pace|behind schedule|time left|are we)\b", t,
     ):

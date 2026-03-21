@@ -87,7 +87,7 @@ def json_block(obj: Any) -> str:
 def build_label_scores_display(
     label_scores: dict[str, float],
     *,
-    title: str = "Label scores (all taxonomy codes)",
+    title: str = "Semantic fit scores (0.00–5.00 max per label)",
     max_rows: int | None = None,
 ) -> str:
     """

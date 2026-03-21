@@ -9,6 +9,7 @@ when no LLM runtime is available; replace with OpenClaw/LLM calls for production
 from __future__ import annotations
 
 import csv
+import math
 import os
 import re
 from pathlib import Path
@@ -92,8 +93,19 @@ def _llm_enabled() -> bool:
     return load_config_from_env() is not None
 
 
-# --- Content-based label scoring (heuristic + LLM bias repair) ---
-# Maps prompt text → best Tier1.Tier2 label without defaulting to concept_exploration.
+# --- Label scoring: semantic (LLM) + semantic proxy (no-LLM fallback) ---
+# Each taxonomy code gets an independent score in [0, 5.00] with 2 decimal places.
+# Heuristic path uses tier/tier2 cues + smoothing so prompts rarely collapse to all zeros.
+
+SCORE_MAX = 5.0
+SCORE_DECIMALS = 2
+# On 0–5 scale: small margin between #1 and #2 ⇒ Boundary Critic refines.
+SCORE_CLOSE_THRESHOLD = 0.75
+
+
+def _clamp_round_score(x: float) -> float:
+    return round(max(0.0, min(SCORE_MAX, float(x))), SCORE_DECIMALS)
+
 
 _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     # Socio-emotional (often short / affective — check before generic cognitive)
@@ -148,22 +160,133 @@ _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
-def _label_scores(text: str) -> dict[str, float]:
-    """Higher score = stronger match. No label gets a free prior."""
-    t = (text or "").lower()
-    scores: dict[str, float] = {code: 0.0 for code in _taxonomy_codes()}
+def _baseline_semantic_spread(t: str, codes: list[str]) -> dict[str, float]:
+    """
+    When keyword affinity is flat, spread scores from discourse cues (length, pronouns, punctuation).
+    Yields non-zero semantic-style relevance on 0–5 scale.
+    """
+    n = len(t)
+    raw: dict[str, float] = {c: 0.35 for c in codes}
+    raw["Cognitive.concept_exploration"] += 0.9 + min(1.2, n / 120.0)
+    raw["Cognitive.solution_development"] += 0.85 + min(1.0, n / 150.0)
+    raw["Metacognitive.planning"] += 0.95
+    raw["Metacognitive.monitoring"] += 0.75
+    raw["Metacognitive.evaluating"] += 0.7
+    raw["Coordinative.coordinate_participants"] += 0.65
+    raw["Coordinative.coordinate_procedures"] += 0.6
+    raw["Socio-emotional.emotional_expression"] += 0.8 if n < 80 else 0.5
+    raw["Socio-emotional.encouragement"] += 0.55
+    raw["Socio-emotional.self_disclosure"] += 0.6
+    if "?" in t:
+        for k in (
+            "Cognitive.concept_exploration",
+            "Cognitive.solution_development",
+            "Metacognitive.planning",
+            "Metacognitive.evaluating",
+        ):
+            raw[k] += 0.5
+    if re.search(r"\b(we|our|us|group|team|let's|should we|everyone)\b", t):
+        raw["Metacognitive.planning"] += 0.45
+        raw["Coordinative.coordinate_participants"] += 0.5
+        raw["Coordinative.coordinate_procedures"] += 0.35
+    if re.search(r"\b(i |i'|my |me |myself)\b", t):
+        raw["Socio-emotional.self_disclosure"] += 0.55
+        raw["Socio-emotional.emotional_expression"] += 0.35
+    mx = max(raw.values())
+    if mx <= 0:
+        return {c: _clamp_round_score(1.0) for c in codes}
+    order = sorted(codes)
+    logits = [raw[c] + 0.28 for c in order]
+    m = max(logits)
+    exps = [math.exp(x - m) for x in logits]
+    ssum = sum(exps)
+    probs = [e / ssum for e in exps]
+    max_p = max(probs) or 1e-9
+    return {
+        order[i]: _clamp_round_score(max(0.05, SCORE_MAX * probs[i] / max_p))
+        for i in range(len(order))
+    }
+
+
+def _semantic_proxy_scores(text: str) -> dict[str, float]:
+    """
+    Semantic proxy (no LLM): combine phrase cues + tier-level discourse signals, map to 0–5 per label.
+    Designed so scores are rarely all zero — uses scaling to SCORE_MAX for the strongest dimension.
+    """
+    codes = _taxonomy_codes()
+    t = (text or "").strip().lower()
+    if not t:
+        return {c: _clamp_round_score(0.5) for c in codes}
+
+    raw: dict[str, float] = {c: 0.0 for c in codes}
     for label, phrases in _LABEL_SCORE_PATTERNS:
-        if label not in scores:
+        if label not in raw:
             continue
         for p in phrases:
             if p in t:
-                scores[label] += 2.5 if len(p) > 4 else 1.5
-    # Light boosts for question marks (often planning or concept — tie-break with context)
-    if "?" in text and scores["Metacognitive.planning"] == 0 and "how " in t:
-        scores["Metacognitive.planning"] += 1.0
-    if "?" in text and any(x in t for x in ("what is", "what does", "define", "meaning")):
-        scores["Cognitive.concept_exploration"] += 1.0
-    return scores
+                raw[label] += 2.2 if len(p) > 4 else 1.4
+
+    # Discourse-level semantic cues (not single-keyword only)
+    if re.search(r"\b(how should|what steps|strategy|approach|plan|first we|let's start|procedure)\b", t):
+        raw["Metacognitive.planning"] += 1.8
+    if re.search(
+        r"\b(on track|progress|next question|move on|pace|behind schedule|time left|are we)\b", t,
+    ):
+        raw["Metacognitive.monitoring"] += 1.8
+    if re.search(
+        r"\b(quality|good enough|make sense|evaluate|weak|strong enough|lack|detail|correct\?)\b", t,
+    ):
+        raw["Metacognitive.evaluating"] += 1.8
+    if re.search(
+        r"\b(define|meaning|concept|what is|what are|what does|clarify|theory|taxonomy|bloom)\b", t,
+    ):
+        raw["Cognitive.concept_exploration"] += 1.6
+    if re.search(
+        r"\b(option|answer|choose|pick|solution|final answer|which one|correct option)\b", t,
+    ):
+        raw["Cognitive.solution_development"] += 1.6
+    if re.search(r"\b(split|divide|allocate|who should|your part|roles|who does)\b", t):
+        raw["Coordinative.coordinate_participants"] += 1.5
+    if re.search(
+        r"\b(go first|take turns|workflow|bullet|paragraph|in chat|group chat|doc|screen)\b", t,
+    ):
+        raw["Coordinative.coordinate_procedures"] += 1.4
+    if re.search(
+        r"\b(thank|thanks|good job|great job|nice work|appreciate|grateful|keep going)\b", t,
+    ):
+        raw["Socio-emotional.encouragement"] += 1.7
+    if re.search(
+        r"\b(i've|i have|not familiar|first time|experience|personally|never done)\b", t,
+    ):
+        raw["Socio-emotional.self_disclosure"] += 1.6
+    if re.search(r"\b(haha|lol|funny|hilarious|frustrated|nervous|worried|😂|哈哈)\b", t):
+        raw["Socio-emotional.emotional_expression"] += 2.0
+
+    if "?" in t:
+        raw["Metacognitive.planning"] += 0.9
+        raw["Cognitive.concept_exploration"] += 0.7
+        raw["Cognitive.solution_development"] += 0.6
+
+    mx = max(raw.values())
+    if mx <= 0:
+        return _baseline_semantic_spread(t, codes)
+    # Soft distribution over labels (semantic proxy): avoids a long tail of exact 0.00 scores.
+    order = sorted(codes)
+    logits = [raw[c] + 0.28 for c in order]
+    m = max(logits)
+    exps = [math.exp(x - m) for x in logits]
+    ssum = sum(exps)
+    probs = [e / ssum for e in exps]
+    max_p = max(probs) or 1e-9
+    return {
+        order[i]: _clamp_round_score(max(0.05, SCORE_MAX * probs[i] / max_p))
+        for i in range(len(order))
+    }
+
+
+def _label_scores(text: str) -> dict[str, float]:
+    """Alias for repair / legacy callers — semantic proxy on 0–5 scale."""
+    return _semantic_proxy_scores(text)
 
 
 def _best_label_from_scores(scores: dict[str, float]) -> tuple[str, float]:
@@ -176,9 +299,9 @@ def _best_label_from_scores(scores: dict[str, float]) -> tuple[str, float]:
 def _infer_label_from_prompt(text: str) -> tuple[str, list[str], dict[str, float]]:
     """
     Returns (chosen_label, ranked_candidates_desc, scores).
-    Picks label from content scores — does **not** default to Cognitive.concept_exploration.
+    Picks label from semantic proxy scores (0–5) — does **not** default to concept_exploration only.
     """
-    scores = _label_scores(text)
+    scores = _semantic_proxy_scores(text)
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     chosen, top = ranked[0][0], ranked[0][1]
     stripped = (text or "").strip().lower()
@@ -187,7 +310,7 @@ def _infer_label_from_prompt(text: str) -> tuple[str, list[str], dict[str, float
             "Socio-emotional.emotional_expression",
             "Socio-emotional.encouragement",
         ], scores
-    if top <= 0:
+    if top <= 0.05:
         # No keyword hit: infer from coarse cues (still avoid concept_exploration as blanket default)
         if any(w in stripped for w in ("how ", "should we", "let's", "we can", "next ", "plan")):
             chosen = "Metacognitive.planning"
@@ -201,14 +324,128 @@ def _infer_label_from_prompt(text: str) -> tuple[str, list[str], dict[str, float
         if chosen not in candidates:
             candidates = [chosen] + [c for c in candidates if c != chosen][:2]
         return chosen, candidates, scores
-    candidates = [c for c, s in ranked[:5] if s > 0][:3]
+    candidates = [c for c, s in ranked[:5] if s > 0.01][:3]
     if not candidates:
         candidates = [chosen]
     return chosen, candidates, scores
 
 
-# Margin between #1 and #2 scores below this ⇒ Boundary Critic should refine boundaries.
-SCORE_CLOSE_THRESHOLD = 1.5
+def _segment_prompt_for_extraction(text: str) -> list[tuple[str, int, int]]:
+    """
+    Split prompt into sentence/clause-like segments with stable offsets.
+    Falls back to one full segment when splitting is not possible.
+    """
+    if not text:
+        return []
+    spans: list[tuple[str, int, int]] = []
+    # Split by punctuation/newline while preserving offsets.
+    parts = re.split(r"([.!?;,\n])", text)
+    cursor = 0
+    buf = ""
+    buf_start = 0
+    for part in parts:
+        if part == "":
+            continue
+        next_cursor = cursor + len(part)
+        if not buf:
+            buf_start = cursor
+        buf += part
+        cursor = next_cursor
+        if re.fullmatch(r"[.!?;,\n]", part):
+            seg = buf.strip()
+            if seg:
+                start = text.find(seg, buf_start, cursor + 1)
+                if start >= 0:
+                    end = start + len(seg)
+                    spans.append((seg, start, end))
+            buf = ""
+    if buf.strip():
+        seg = buf.strip()
+        start = text.find(seg, buf_start)
+        if start >= 0:
+            spans.append((seg, start, start + len(seg)))
+
+    # Remove tiny duplicates and keep deterministic order.
+    dedup: list[tuple[str, int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    for seg, s, e in spans:
+        if e - s < 2:
+            continue
+        if (s, e) in seen:
+            continue
+        seen.add((s, e))
+        dedup.append((seg, s, e))
+    if not dedup:
+        return [(text, 0, len(text))]
+    return dedup[:8]
+
+
+def _sentiment_tag(segment: str) -> str:
+    t = segment.lower()
+    if any(k in t for k in ("haha", "lol", "hilarious", "funny", "frustrated", "worried", "nervous", "angry", "sad", "😂", "哈哈")):
+        return "affective"
+    if re.search(r"\b(thank|thanks|good job|great job|nice|appreciate)\b", t):
+        return "supportive"
+    if re.search(r"\b(not familiar|first time|never done|i've|i have|my experience)\b", t):
+        return "self_disclosure"
+    return "neutral_task"
+
+
+def _build_signal_extractor_output(cleaned: str) -> dict[str, Any]:
+    segments = _segment_prompt_for_extraction(cleaned)
+    evidence_spans: list[dict[str, Any]] = []
+    candidate_signals: list[dict[str, Any]] = []
+    ambiguity: list[dict[str, Any]] = []
+
+    for idx, (seg, start, end) in enumerate(segments):
+        chosen, cand_list, score_map = _infer_label_from_prompt(seg)
+        ranked = sorted(score_map.items(), key=lambda kv: (-kv[1], kv[0]))
+        top = ranked[0][1] if ranked else 0.0
+        second = ranked[1][1] if len(ranked) > 1 else 0.0
+        s_tag = _sentiment_tag(seg)
+        evidence_spans.append(
+            {
+                "span": seg,
+                "start": start,
+                "end": end,
+                "reason": (
+                    f"Segmented evidence (sentiment={s_tag}); preserve local intent before final label arbitration."
+                ),
+            }
+        )
+        candidate_signals.append(
+            {
+                "span_ref": idx,
+                "candidates": cand_list,
+                "reason": (
+                    f"Top candidate={chosen} from semantic-fit scoring on this segment "
+                    f"(top={top:.2f}, second={second:.2f})."
+                ),
+            }
+        )
+        if top <= 0.05:
+            ambiguity.append(
+                {
+                    "span_ref": idx,
+                    "reason": "Weak semantic signal in this segment.",
+                }
+            )
+        elif second > 0.01 and (top - second) < SCORE_CLOSE_THRESHOLD:
+            ambiguity.append(
+                {
+                    "span_ref": idx,
+                    "reason": (
+                        f"Close top-two scores for this segment (margin={(top-second):.2f}); "
+                        "Boundary Critic should refine."
+                    ),
+                }
+            )
+
+    return {
+        "evidence_spans": evidence_spans,
+        "candidate_signals": candidate_signals,
+        "ambiguity": ambiguity,
+    }
 
 
 def _enrich_label_coder_scores(
@@ -221,14 +458,14 @@ def _enrich_label_coder_scores(
     """Attach full label_scores, ranked list, closeness flag, and Discord-ready display."""
     from cloudbot.discord.format import build_label_scores_display
 
-    full = {code: float(score_map.get(code, 0.0)) for code in allowed_codes}
+    full = {code: _clamp_round_score(float(score_map.get(code, 0.0))) for code in allowed_codes}
     ranked = sorted(full.items(), key=lambda kv: (-kv[1], kv[0]))
     label_coder["label_scores"] = full
     label_coder["label_scores_ranked"] = [
         {"label": k, "score": round(v, 2)} for k, v in ranked
     ]
     margin = (ranked[0][1] - ranked[1][1]) if len(ranked) > 1 else ranked[0][1]
-    label_coder["scores_close"] = bool(ranked[0][1] > 0 and margin < close_threshold)
+    label_coder["scores_close"] = bool(ranked[0][1] > 0.01 and margin < close_threshold)
     label_coder["label_scores_margin_top2"] = round(margin, 3)
     label_coder["label_scores_display"] = build_label_scores_display(full)
 
@@ -238,21 +475,33 @@ def _merge_label_scores_with_heuristic(
     cleaned_prompt: str,
     allowed_codes: list[str],
 ) -> dict[str, float]:
-    """Ensure every taxonomy code has a score; blend LLM scores with heuristic when missing."""
-    heur = _label_scores(cleaned_prompt)
+    """
+    LLM scores = semantic relevance (must be 0.00–5.00). Clamp and merge with semantic proxy
+    when the model returns missing, invalid, or near-all-zero scores.
+    """
+    heur = _semantic_proxy_scores(cleaned_prompt)
     raw = lc.get("label_scores")
     if not isinstance(raw, dict):
-        raw = {}
+        return heur
     merged: dict[str, float] = {}
     for code in allowed_codes:
         v = raw.get(code)
         if v is None:
-            merged[code] = float(heur.get(code, 0.0))
+            merged[code] = heur[code]
         else:
             try:
-                merged[code] = float(v)
+                merged[code] = _clamp_round_score(float(v))
             except (TypeError, ValueError):
-                merged[code] = float(heur.get(code, 0.0))
+                merged[code] = heur[code]
+    max_llm = max(merged.values()) if merged else 0.0
+    if max_llm < 0.05:
+        return heur
+    # Weak / flat LLM output: blend toward semantic proxy (still 0–5)
+    if max_llm < 1.25:
+        return {
+            c: _clamp_round_score(0.55 * heur[c] + 0.45 * merged[c])
+            for c in allowed_codes
+        }
     return merged
 
 
@@ -260,11 +509,11 @@ def _pick_final_label_from_ranked(
     ranked_pairs: list[tuple[str, float]],
     fallback_label: str,
 ) -> str:
-    """Pick argmax when top score > 0; otherwise keep coder fallback (tie-break / coarse cue)."""
+    """Pick argmax when top score is meaningful; otherwise keep coder fallback."""
     if not ranked_pairs:
         return fallback_label
     top_label, top_s = ranked_pairs[0]
-    if top_s <= 0.0:
+    if top_s <= 0.01:
         return fallback_label
     return top_label
 
@@ -388,12 +637,12 @@ def _maybe_repair_concept_exploration_bias(
     If the model labels everything Cognitive.concept_exploration but content scores favor
     another code, replace final/adjudicator labels with the heuristic best (when confident).
     """
-    scores = _label_scores(cleaned_prompt)
+    scores = _semantic_proxy_scores(cleaned_prompt)
     best_h, best_s = _best_label_from_scores(scores)
     concept_s = scores.get("Cognitive.concept_exploration", 0.0)
-    if best_h == "Cognitive.concept_exploration" or best_s < 2.0:
+    if best_h == "Cognitive.concept_exploration" or best_s < 2.25:
         return
-    if best_s <= concept_s + 0.5:
+    if best_s <= concept_s + 0.35:
         return
 
     adj = out.get("adjudicator") or {}
@@ -480,7 +729,8 @@ Rules:
 - **Labeling procedure (mandatory):** For each span, decide **Tier1 first** (Cognitive vs Metacognitive vs Coordinative vs Socio-emotional), then **Tier2** within that tier. The label must match the **primary intent** of the quoted evidence, not a generic default.
 - **Do NOT default to Cognitive.concept_exploration.** Use it only when the utterance is mainly about **concepts/definitions/learning meanings** (e.g. what a term means, clarifying a concept). Do **not** use it for: pure laughter/reactions, thanks/praise, task splitting/roles, planning how to solve, checking progress, judging output quality, or picking/correct answers—those map to other codes in the list above.
 - **Evidence:** Every Label Coder and Adjudicator label must cite a **verbatim substring** of the prompt in `evidence_used` / rationale; candidate_signals should list 1–3 plausible codes when ambiguous.
-- **Label Coder must output `label_scores`:** an object with **every** code in the allowed list as a key exactly once, each value a **non-negative number** (relative strength / confidence). Higher = better match. The pipeline will rank codes and set the **final label to the highest score** when the top score is informative; if scores are **close** (small margin between #1 and #2), the Boundary Critic should refine the boundary.
+- **Signal Extractor precision:** split the prompt into multiple minimal evidence spans (sentence/clause level), attach precise start/end offsets, keep each span verbatim, and include sentiment-aware rationale per span (e.g. affective/supportive/neutral_task). Do not collapse to one full-span evidence unless the prompt is too short to segment.
+- **Label Coder must output `label_scores`:** an object with **every** code in the allowed list as a key exactly once. Each value must be a number from **0.00 to 5.00** (two decimals), representing **semantic fit** of the utterance to that label (intent, not keyword counts). **5.00** = strongest match for that category; **0.00** = no meaningful fit. Judge each label **independently** by meaning (cognitive vs metacognitive vs coordinative vs socio-emotional, then tier2). The pipeline ranks codes and sets the **final label to the highest score** when informative; if #1 and #2 are **close** (small margin on this 0–5 scale), the Boundary Critic refines the boundary.
 - Use golden-labels boundaries and decision rules below.
 - Keep evidence spans minimal but sufficient; use span_ref=0 for the whole prompt if needed.
 - Boundary Critic must only challenge, not decide.
@@ -545,28 +795,20 @@ def run_autocoding_pipeline(
     second_best = sorted(score_map.items(), key=lambda kv: -kv[1])[1][1] if len(score_map) > 1 else 0.0
 
     # --- Signal Extractor ---
-    full_span = cleaned
-    start = 0
-    end = len(full_span)
-    evidence_spans = [{"span": full_span, "start": start, "end": end, "reason": "Full prompt span for heuristic labeling."}]
-    candidate_signals = [
-        {
-            "span_ref": 0,
-            "candidates": cand_list,
-            "reason": "Ranked by keyword/content scores; label must match primary intent (not a single default).",
-        }
-    ]
-    ambiguity: list[dict[str, Any]] = []
-    if top_score > 0 and second_best > 0 and (top_score - second_best) < 1.5:
-        ambiguity.append({"span_ref": 0, "reason": "Top two label scores are close; tier1/tier2 boundary may be ambiguous."})
-    elif top_score <= 0:
-        ambiguity.append({"span_ref": 0, "reason": "Weak keyword match; label inferred from coarse cues only."})
-
-    signal_extractor = {
-        "evidence_spans": evidence_spans,
-        "candidate_signals": candidate_signals,
-        "ambiguity": ambiguity,
-    }
+    signal_extractor = _build_signal_extractor_output(cleaned)
+    # Keep prior whole-prompt ambiguity signal so downstream behavior remains compatible.
+    if (
+        top_score > 0.01
+        and second_best > 0.01
+        and (top_score - second_best) < SCORE_CLOSE_THRESHOLD
+    ):
+        signal_extractor["ambiguity"].append(
+            {"span_ref": 0, "reason": "Whole-prompt top two semantic-fit scores are close; tier1/tier2 boundary may be ambiguous."}
+        )
+    elif top_score <= 0.05:
+        signal_extractor["ambiguity"].append(
+            {"span_ref": 0, "reason": "Whole-prompt semantic signal is weak; use segment-level evidence carefully."}
+        )
 
     # --- Label Coder (draft) ---
     rationale = (
@@ -578,11 +820,11 @@ def run_autocoding_pipeline(
             {
                 "span_ref": 0,
                 "label": chosen,
-                "evidence_used": full_span[:80] + ("..." if len(full_span) > 80 else ""),
+                "evidence_used": cleaned[:80] + ("..." if len(cleaned) > 80 else ""),
                 "rationale": rationale,
             }
         ],
-        "uncertain": [] if not ambiguity else ["See signal_extractor.ambiguity for competing interpretations."],
+        "uncertain": [] if not signal_extractor.get("ambiguity") else ["See signal_extractor.ambiguity for competing interpretations."],
         "revision_note": None,
     }
 

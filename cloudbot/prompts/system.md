@@ -60,6 +60,6 @@ Adjudicator        → final arbitration; optionally trigger one retry to Critic
 - **Signal Extractor**: `evidence_spans`, `candidate_signals`, `ambiguity` (no final labels).
 - **Label Coder**: `labels`, **`label_scores` (every taxonomy code)**, `uncertain`, `revision_note` (draft then revised); runtime may add ranked scores, `scores_close`, and a display table for the Boundary Critic.
 - **Boundary Critic**: `challenges`, `request_missing_evidence`.
-- **Adjudicator**: `final_labels`, `uncertain`, `retry` (null unless one-round retry).
+- **Adjudicator**: `final_labels`, `uncertain`, `retry` (null unless one-round retry). Final decisions should **integrate** `label_scores` **and** Boundary Critic challenges—not argmax alone when the critic raises close-boundary issues.
 
 Refer to each agent’s `AGENTS.md` and the workflow’s `autocoding.yaml` for detailed schemas and step order. Taxonomy: **cloudbot/data/label-taxonomy.csv** (canonical **Tier1.tier2**). **Golden labels are primary** (see **cloudbot/data/golden-labels.md**); training data **cloudbot/data/training/** is auxiliary (辅助) for calibration only. Assign labels from the **prompt’s primary intent**, not a single default category.

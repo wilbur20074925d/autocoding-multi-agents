@@ -14,6 +14,10 @@ from .format import (
     format_full_prompt_section,
     format_boundary_challenge_block,
     fenced_plain_text,
+    format_adjudicator_discord,
+    format_session_overview_discord,
+    format_controller_label_ack,
+    format_prompt_received,
 )
 from .dispatcher import (
     ADJUDICATOR,
@@ -42,6 +46,10 @@ __all__ = [
     "format_full_prompt_section",
     "format_boundary_challenge_block",
     "fenced_plain_text",
+    "format_adjudicator_discord",
+    "format_session_overview_discord",
+    "format_controller_label_ack",
+    "format_prompt_received",
     # Dispatcher (1 orchestrator + 4 display bots)
     "SIGNAL_EXTRACTOR",
     "LABEL_CODER",

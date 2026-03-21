@@ -197,6 +197,171 @@ def _apply_session_context_cognitive_bias(
         raw["Cognitive.solution_development"] += 1.1
 
 
+def _session_neighbor_lists(context: dict[str, Any] | None) -> tuple[list[str], list[str]]:
+    """Normalize session_prompts_before / session_prompts_after from pipeline context."""
+    ctx = context or {}
+
+    def _coerce(x: Any) -> list[str]:
+        if x is None:
+            return []
+        if isinstance(x, str):
+            s = x.strip()
+            return [s] if s else []
+        if isinstance(x, (list, tuple)):
+            return [str(s).strip() for s in x if str(s).strip()]
+        return []
+
+    before = _coerce(ctx.get("session_prompts_before")) or _coerce(ctx.get("prompts_before"))
+    after = _coerce(ctx.get("session_prompts_after")) or _coerce(ctx.get("prompts_after"))
+    return before, after
+
+
+def _session_bundle_scores_for_tilt(texts: list[str]) -> dict[str, float]:
+    """Average softmax semantic-proxy scores across utterances (context=None per line)."""
+    codes = _taxonomy_codes()
+    agg = {c: 0.0 for c in codes}
+    n = 0
+    for text in texts:
+        tt = (text or "").strip()
+        if not tt:
+            continue
+        sc = _semantic_proxy_scores(tt, None)
+        n += 1
+        for c in codes:
+            agg[c] += sc.get(c, 0.0)
+    if n == 0:
+        return agg
+    return {c: agg[c] / n for c in codes}
+
+
+def _apply_session_window_cognitive_bias(
+    raw: dict[str, float],
+    t: str,
+    context: dict[str, Any] | None,
+) -> None:
+    """
+    Use neighboring prompts in the same group / window to reduce CE vs SD confusion:
+    if the session collectively leans solution_development, nudge the current utterance.
+    """
+    before, after = _session_neighbor_lists(context)
+    if not before and not after:
+        return
+    bundle = [*(before or []), t, *(after or [])]
+    agg = _session_bundle_scores_for_tilt(bundle)
+    ce = agg.get("Cognitive.concept_exploration", 0.0)
+    sd = agg.get("Cognitive.solution_development", 0.0)
+    if sd > ce + 0.18:
+        raw["Cognitive.solution_development"] += 1.05
+        raw["Cognitive.concept_exploration"] = max(
+            0.0,
+            raw.get("Cognitive.concept_exploration", 0.0) - 0.55,
+        )
+    elif ce > sd + 0.18:
+        raw["Cognitive.concept_exploration"] += 0.65
+        raw["Cognitive.solution_development"] = max(
+            0.0,
+            raw.get("Cognitive.solution_development", 0.0) - 0.35,
+        )
+
+
+def _build_session_overview_dict(
+    context: dict[str, Any] | None,
+    current_prompt: str,
+) -> dict[str, Any]:
+    """
+    Signal Extractor: overview of the chat window for Discord + downstream reasoning.
+    """
+    before, after = _session_neighbor_lists(context)
+    has = bool(before or after)
+    cur = (current_prompt or "").strip()
+    if not has:
+        return {
+            "has_neighbors": False,
+            "cognitive_tilt": "neutral",
+            "summary_line": "_No neighboring prompts in context (single-utterance mode)._",
+            "before": [],
+            "after": [],
+            "per_utterance_top": [],
+            "aggregate_preview": {},
+        }
+
+    bundle = [*(before or []), cur, *(after or [])]
+    agg = _session_bundle_scores_for_tilt(bundle)
+    ce = agg.get("Cognitive.concept_exploration", 0.0)
+    sd = agg.get("Cognitive.solution_development", 0.0)
+    if sd > ce + 0.18:
+        tilt = "solution_development"
+        summary = (
+            f"Session window **leans toward task solutions / answers** "
+            f"(avg fit: solution_development≈{sd:.2f} vs concept_exploration≈{ce:.2f}). "
+            "Prefer **Cognitive.solution_development** when the current line is ambiguous."
+        )
+    elif ce > sd + 0.18:
+        tilt = "concept_exploration"
+        summary = (
+            f"Session window **leans toward concepts / meanings** "
+            f"(avg fit: concept_exploration≈{ce:.2f} vs solution_development≈{sd:.2f}). "
+            "Prefer **Cognitive.concept_exploration** when the current line is ambiguous."
+        )
+    else:
+        tilt = "mixed"
+        summary = (
+            f"Session window is **mixed** on cognitive tier2 (concept_exploration≈{ce:.2f}, "
+            f"solution_development≈{sd:.2f}). Disambiguate from the current utterance and evidence."
+        )
+
+    per: list[dict[str, Any]] = []
+    for i, txt in enumerate(before, start=1):
+        sc = _semantic_proxy_scores(txt, None)
+        ranked = sorted(sc.items(), key=lambda kv: (-kv[1], kv[0]))
+        top_lab = ranked[0][0] if ranked else ""
+        per.append(
+            {
+                "role": "before",
+                "index": i,
+                "preview": txt[:220] + ("…" if len(txt) > 220 else ""),
+                "top_label": top_lab,
+                "top_score": round(float(ranked[0][1]), 2) if ranked else 0.0,
+            }
+        )
+    sc_cur = _semantic_proxy_scores(cur, context)
+    r_cur = sorted(sc_cur.items(), key=lambda kv: (-kv[1], kv[0]))
+    per.append(
+        {
+            "role": "current",
+            "index": 0,
+            "preview": cur[:220] + ("…" if len(cur) > 220 else ""),
+            "top_label": r_cur[0][0] if r_cur else "",
+            "top_score": round(float(r_cur[0][1]), 2) if r_cur else 0.0,
+        }
+    )
+    for i, txt in enumerate(after, start=1):
+        sc = _semantic_proxy_scores(txt, None)
+        ranked = sorted(sc.items(), key=lambda kv: (-kv[1], kv[0]))
+        top_lab = ranked[0][0] if ranked else ""
+        per.append(
+            {
+                "role": "after",
+                "index": i,
+                "preview": txt[:220] + ("…" if len(txt) > 220 else ""),
+                "top_label": top_lab,
+                "top_score": round(float(ranked[0][1]), 2) if ranked else 0.0,
+            }
+        )
+
+    top5 = sorted(agg.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+    return {
+        "has_neighbors": True,
+        "cognitive_tilt": tilt,
+        "summary_line": summary,
+        "before": before,
+        "after": after,
+        "per_utterance_top": per,
+        "aggregate_preview": {k: round(v, 3) for k, v in top5},
+        "neighbor_counts": {"before": len(before), "after": len(after)},
+    }
+
+
 # --- Label scoring: semantic (LLM) + semantic proxy (no-LLM fallback) ---
 # Each taxonomy code gets an independent score in [0, 5.00] with 2 decimal places.
 # Heuristic path uses tier/tier2 cues + smoothing so prompts rarely collapse to all zeros.
@@ -395,6 +560,7 @@ def _semantic_proxy_scores(
         raw["Cognitive.solution_development"] += 0.6
 
     _apply_session_context_cognitive_bias(raw, t, norm)
+    _apply_session_window_cognitive_bias(raw, t, context)
 
     mx = max(raw.values())
     if mx <= 0:
@@ -534,6 +700,7 @@ def _build_signal_extractor_output(
     cleaned: str,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    session_overview = _build_session_overview_dict(context, cleaned)
     segments = _segment_prompt_for_extraction(cleaned)
     evidence_spans: list[dict[str, Any]] = []
     candidate_signals: list[dict[str, Any]] = []
@@ -595,6 +762,7 @@ def _build_signal_extractor_output(
             )
 
     return {
+        "session_overview": session_overview,
         "evidence_spans": evidence_spans,
         "candidate_signals": candidate_signals,
         "ambiguity": ambiguity,
@@ -828,9 +996,135 @@ def _sync_label_coder_and_adjudicator_from_scores(out: dict[str, Any]) -> None:
         f0 = finals[0]
         f0["label"] = final
         f0["decision"] = f0.get("decision") or "accept_coder"
-        prev = (f0.get("rationale") or "").strip()
-        extra = f"Final label = **{final}** (highest score among all `label_scores`)."
-        f0["rationale"] = f"{extra} {prev}".strip() if prev else extra
+        # Full adjudication rationale is produced in _finalize_adjudicator_with_boundary_critic.
+
+
+def _finalize_adjudicator_with_boundary_critic(out: dict[str, Any]) -> None:
+    """
+    Final arbitration: not score-only. Weigh `label_scores` (top vs runner-up, margin)
+    together with Boundary Critic challenges (questions, suggested_alternative, must_challenge).
+    """
+    adj = out.setdefault("adjudicator", {})
+    lc = out.get("label_coder") or {}
+    bc = out.get("boundary_critic") or {}
+    ranked = lc.get("label_scores_ranked") or []
+    challenges = bc.get("challenges") or []
+    if not isinstance(challenges, list):
+        challenges = []
+
+    finals = adj.get("final_labels")
+    if not isinstance(finals, list) or not finals:
+        finals = [{"span_ref": 0, "label": "", "decision": "accept_coder", "rationale": ""}]
+        adj["final_labels"] = finals
+    f0 = finals[0]
+    if not isinstance(f0, dict):
+        return
+
+    prior_model = (f0.get("rationale") or "").strip()
+
+    top_label = ""
+    top_score = 0.0
+    second_label = ""
+    second_score = 0.0
+    if len(ranked) >= 1 and isinstance(ranked[0], dict):
+        top_label = str(ranked[0].get("label") or "").strip()
+        try:
+            top_score = float(ranked[0].get("score") or 0.0)
+        except (TypeError, ValueError):
+            top_score = 0.0
+    if len(ranked) >= 2 and isinstance(ranked[1], dict):
+        second_label = str(ranked[1].get("label") or "").strip()
+        try:
+            second_score = float(ranked[1].get("score") or 0.0)
+        except (TypeError, ValueError):
+            second_score = 0.0
+
+    if not top_label:
+        top_label = str(f0.get("label") or "").strip()
+
+    margin = float(lc.get("label_scores_margin_top2") or 0.0)
+    scores_close = bool(lc.get("scores_close"))
+    close_thr = SCORE_CLOSE_THRESHOLD
+
+    # --- Decision policy: integrate Boundary Critic, not argmax-only ---
+    decision = "accept_coder"
+    final_label = top_label
+    if challenges and scores_close:
+        decision = "combine_both"
+    elif challenges:
+        decision = "accept_coder"
+
+    f0["label"] = final_label
+    f0["decision"] = decision
+
+    labs = lc.get("labels") or []
+    if labs and isinstance(labs[0], dict):
+        labs[0]["label"] = final_label
+
+    lines: list[str] = []
+    lines.append("### Score basis")
+    lines.append(f"- **Primary by rank:** `{top_label}` ({top_score:.2f})")
+    if second_label:
+        lines.append(f"- **Runner-up:** `{second_label}` ({second_score:.2f})")
+    lines.append(f"- **Margin (top1 − top2):** {margin:.3f} (close threshold: {close_thr})")
+    lines.append(f"- **Scores flagged close (`scores_close`):** {'yes' if scores_close else 'no'}")
+
+    lines.append("")
+    lines.append("### Boundary Critic — reviewed")
+    if challenges:
+        for i, c in enumerate(challenges[:8], 1):
+            if not isinstance(c, dict):
+                continue
+            al = str(c.get("assigned_label") or "")
+            alt = str(c.get("suggested_alternative") or "")
+            must = bool(c.get("must_challenge"))
+            lines.append(
+                f"{i}. Assigned `{al}` → suggested alternative `{alt}` · must_challenge={must}"
+            )
+            q = (c.get("question") or "").strip()
+            if q:
+                lines.append(f"   - **Q:** {q}")
+            rsn = (c.get("reason") or "").strip()
+            if rsn:
+                lines.append(f"   - **Note:** {rsn}")
+            pro = (c.get("support_evidence") or "").strip()
+            con = (c.get("refute_evidence") or "").strip()
+            if pro:
+                lines.append(f"   - **Pro:** {pro}")
+            if con:
+                lines.append(f"   - **Con:** {con}")
+    else:
+        lines.append("_No Boundary Critic challenges for this run._")
+
+    lines.append("")
+    lines.append("### Arbitration (precise)")
+    if decision == "combine_both":
+        ru = f"**`{second_label}`**" if second_label else "the runner-up code"
+        lines.append(
+            f"**Decision: `combine_both`** — Top score favors **`{top_label}`**; {ru} remains "
+            f"plausible (margin {margin:.3f}; close threshold {close_thr}). The Boundary Critic raised substantive "
+            "boundary questions. **Primary label** = ranked winner; **runner-up** stays **actively plausible**—resolve using evidence and golden-labels."
+        )
+    else:
+        lines.append(
+            f"**Decision: `accept_coder`** — After integrating scores"
+            + (" and Boundary Critic messages" if challenges else "")
+            + f", **`{final_label}`** is adopted as the final label. "
+            + (
+                "The score margin supports the leader over the runner-up."
+                if not scores_close
+                else "Challenges were reviewed; they do not warrant overriding the ranked leader on current evidence."
+            )
+        )
+
+    structured = "\n".join(lines)
+    if prior_model and "### Score basis" not in prior_model:
+        f0["rationale"] = structured + "\n\n---\n**Prior adjudicator draft (model):**\n" + prior_model
+    else:
+        f0["rationale"] = structured
+
+    adj["adjudication_analysis"] = structured
+    adj["boundary_critic_weighed"] = bool(challenges)
 
 
 def _ensure_label_coder_full_scores(
@@ -977,6 +1271,7 @@ def _postprocess_pipeline_output(
     if isinstance(bc, dict) and isinstance(lc, dict):
         _dedupe_boundary_critic_challenges(bc)
         _enrich_close_score_challenges_pro_con(bc, lc)
+    _finalize_adjudicator_with_boundary_critic(out)
 
 
 def _maybe_repair_concept_exploration_bias(
@@ -1035,26 +1330,49 @@ def _maybe_repair_concept_exploration_bias(
         cands[0]["reason"] = "Ranked candidates from content-based scoring; avoids default concept_exploration."
 
 
-def _format_session_context_for_llm(context: dict[str, Any] | None) -> str:
-    """Structured 上下文 block for the LLM user message (disambiguation)."""
+def _format_session_context_for_llm(
+    context: dict[str, Any] | None,
+    current_prompt: str = "",
+) -> str:
+    """Structured 上下文 block for the LLM user message (disambiguation + session window)."""
     n = _normalize_session_context(context)
+    lines: list[str] = []
     if not any([n.get("group"), n.get("people"), n.get("timestamp"), n.get("scenario")]):
-        return (
-            "### Session context (上下文)\n"
-            "_No metadata provided — infer labels from the prompt text alone._"
+        lines.append("### Session context (上下文)")
+        lines.append("_Limited metadata — infer primarily from the prompt text._")
+    else:
+        lines.extend(
+            [
+                "### Session context (上下文) — MUST use for disambiguation",
+                f"- **group:** {n.get('group') or '—'}",
+                f"- **people:** {n.get('people') or '—'}",
+                f"- **timestamp / segment:** {n.get('timestamp') or '—'}",
+                f"- **scenario / condition tag:** {n.get('scenario') or '—'}",
+                "",
+                "When this metadata indicates a **communication or study episode**, very short utterances may refer to the **joint task** (e.g. naming an answer, picking an option). "
+                "Then prefer **Cognitive.solution_development** over **Cognitive.concept_exploration** for phrases like *Naming and defining.* unless the speaker is clearly asking for abstract conceptual definitions.",
+            ]
         )
-    return "\n".join(
-        [
-            "### Session context (上下文) — MUST use for disambiguation",
-            f"- **group:** {n.get('group') or '—'}",
-            f"- **people:** {n.get('people') or '—'}",
-            f"- **timestamp / segment:** {n.get('timestamp') or '—'}",
-            f"- **scenario / condition tag:** {n.get('scenario') or '—'}",
-            "",
-            "When this metadata indicates a **communication or study episode**, very short utterances may refer to the **joint task** (e.g. naming an answer, picking an option). "
-            "Then prefer **Cognitive.solution_development** over **Cognitive.concept_exploration** for phrases like *Naming and defining.* unless the speaker is clearly asking for abstract conceptual definitions.",
-        ]
-    )
+
+    before, after = _session_neighbor_lists(context)
+    if before or after:
+        lines.append("")
+        lines.append("### Neighboring prompts (same group · time order)")
+        lines.append(
+            "Use these to infer **session activity** (especially **Cognitive.concept_exploration** vs **Cognitive.solution_development**). "
+            "If the window focuses on answers/options, do not over-use concept_exploration on the current line."
+        )
+        for i, p in enumerate(before, 1):
+            lines.append(f"- **Before {i}:** {p[:500]}{'…' if len(p) > 500 else ''}")
+        lines.append(f"- **Current:** {current_prompt[:800]}{'…' if len(current_prompt) > 800 else ''}")
+        for i, p in enumerate(after, 1):
+            lines.append(f"- **After {i}:** {p[:500]}{'…' if len(p) > 500 else ''}")
+        ov = _build_session_overview_dict(context, current_prompt)
+        lines.append("")
+        lines.append(f"**Heuristic session cognitive tilt:** `{ov.get('cognitive_tilt', 'neutral')}`")
+        lines.append(str(ov.get("summary_line") or ""))
+
+    return "\n".join(lines)
 
 
 def _run_llm_pipeline(cleaned_prompt: str, context: dict[str, Any]) -> dict[str, Any] | None:
@@ -1065,7 +1383,7 @@ def _run_llm_pipeline(cleaned_prompt: str, context: dict[str, Any]) -> dict[str,
     allowed = _taxonomy_codes()
     golden = _golden_summary()
     sys_prompt = _system_prompt()
-    ctx_block = _format_session_context_for_llm(context)
+    ctx_block = _format_session_context_for_llm(context, cleaned_prompt)
 
     # Keep output schema aligned with Discord dispatcher expectations.
     instruction = f"""
@@ -1137,6 +1455,9 @@ Golden-labels criteria excerpt:
             return None
     out.setdefault("prompt", cleaned_prompt)
     out.setdefault("context", context)
+    se = out.get("signal_extractor")
+    if isinstance(se, dict):
+        se["session_overview"] = _build_session_overview_dict(context, cleaned_prompt)
     _postprocess_pipeline_output(out, cleaned_prompt, allowed)
     return out
 

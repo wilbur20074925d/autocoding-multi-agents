@@ -43,6 +43,52 @@ def format_full_prompt_section(prompt: str | None) -> str:
     return section("Prompt", fenced_plain_text(p))
 
 
+def format_session_overview_discord(overview: dict[str, Any] | None) -> str:
+    """
+    Session window block: same-group neighbors + heuristic cognitive focus.
+    Shown **between** Prompt and Evidence spans on the Signal Extractor message.
+    """
+    if not overview:
+        return section(
+            "📎 Session window (same group)",
+            "_No session overview._",
+        )
+    if not overview.get("has_neighbors"):
+        return section(
+            "📎 Session window (same group)",
+            str(
+                overview.get("summary_line")
+                or "_No neighboring prompts — pass `session_prompts_before` / `session_prompts_after` in context (e.g. CSV batch) or use group+time-ordered rows._",
+            ),
+        )
+
+    tilt = str(overview.get("cognitive_tilt") or "neutral")
+    nb = overview.get("neighbor_counts") or {}
+    lines: list[str] = [
+        f"**Cognitive activity focus (heuristic):** `{tilt}`",
+        "",
+        str(overview.get("summary_line") or ""),
+        "",
+        f"**Utterances in window:** ⬆️ before **{nb.get('before', 0)}** · 📍 current **1** · ⬇️ after **{nb.get('after', 0)}**",
+    ]
+
+    agg = overview.get("aggregate_preview") or {}
+    if agg:
+        top_fmt = " · ".join(f"`{k}` {v}" for k, v in list(agg.items())[:5])
+        lines.extend(["", f"**Session-averaged fit (top codes):** {top_fmt}"])
+
+    lines.extend(["", "**Per-utterance top label** (semantic proxy, for orientation only)"])
+    for row in overview.get("per_utterance_top") or []:
+        role = str(row.get("role") or "")
+        pv = str(row.get("preview") or "")
+        lab = str(row.get("top_label") or "")
+        sc = row.get("top_score", "")
+        role_disp = {"before": "⬆️ Earlier", "after": "⬇️ Later", "current": "📍 Current"}.get(role, role)
+        lines.append(f"• **{role_disp}** → `{lab}` ({sc}) — {pv}")
+
+    return section("📎 Session window (same group · time order)", "\n".join(lines))
+
+
 def format_evidence_spans_full(
     evidence: list[Any],
     *,
@@ -223,30 +269,132 @@ def key_value_pairs(
     return body
 
 
+def format_controller_label_ack(
+    prompt: str,
+    *,
+    context: dict[str, Any] | None = None,
+    csv_row_index: int | None = None,
+    csv_row_total: int | None = None,
+    max_prompt_len: int = 900,
+    max_neighbor_lines: int = 8,
+    neighbor_preview_chars: int = 220,
+) -> str:
+    """
+    Controller “received” message: **metadata**, **session window**, **orchestration**, **prompt** — separate sections.
+
+    `context` should match pipeline input: `group`, `timestamp`, `people`, `context` (scenario tag),
+    optional `HC1`/`HC2`, and `session_prompts_before` / `session_prompts_after`.
+    """
+    ctx = context or {}
+    p = (prompt or "").strip()
+
+    def _field(key: str) -> str:
+        v = ctx.get(key)
+        if v is None:
+            return "—"
+        s = str(v).strip()
+        return s if s else "—"
+
+    group_v = _field("group")
+    ts_v = _field("timestamp")
+    people_v = _field("people")
+    scen_v = _field("context")
+
+    meta_table = table_from_rows(
+        ["Field", "Value"],
+        [
+            ["Group", group_v],
+            ["Timestamp", ts_v],
+            ["People", people_v],
+            ["Context (tag)", scen_v],
+        ],
+        title="Session metadata",
+    )
+
+    hc1, hc2 = _field("HC1"), _field("HC2")
+    hc_block = ""
+    if hc1 != "—" or hc2 != "—":
+        hc_block = "\n\n" + table_from_rows(
+            ["Reference", "Value"],
+            [["HC1 (golden)", hc1], ["HC2 (golden)", hc2]],
+            title="Human-coded reference",
+        )
+
+    before = ctx.get("session_prompts_before") or ctx.get("prompts_before") or []
+    after = ctx.get("session_prompts_after") or ctx.get("prompts_after") or []
+    if not isinstance(before, list):
+        before = []
+    if not isinstance(after, list):
+        after = []
+
+    def _neighbor_lines(items: list[Any]) -> list[str]:
+        out: list[str] = []
+        shown = 0
+        for item in items[:max_neighbor_lines]:
+            t = (str(item) if item is not None else "").strip()
+            if not t:
+                continue
+            shown += 1
+            one = " ".join(t.split())
+            prev = truncate(one, max_len=neighbor_preview_chars)
+            out.append(f"**{shown}.** {prev}")
+        rest = len(items) - max_neighbor_lines
+        if rest > 0:
+            out.append(f"_…and {rest} more not listed._")
+        return out
+
+    b_lines = _neighbor_lines(before)
+    a_lines = _neighbor_lines(after)
+    win_parts = [
+        f"**Same-group window · before this utterance:** **{len(before)}** line(s) · **after:** **{len(after)}** line(s)",
+        "",
+    ]
+    if b_lines:
+        win_parts.append("**Earlier in session (oldest → newest, previews)**")
+        win_parts.extend(b_lines)
+    else:
+        win_parts.append("**Earlier in session:** _none in window_")
+    win_parts.append("")
+    if a_lines:
+        win_parts.append("**Later in file / batch (previews)**")
+        win_parts.extend(a_lines)
+    else:
+        win_parts.append("**Later in file / batch:** _none_ _(normal for live Discord)_")
+
+    session_window = section("Session window (same group · time order)", "\n".join(win_parts))
+
+    orch = section(
+        "Orchestration",
+        "\n".join(
+            [
+                "1. **Signal Extractor** — evidence spans + candidate signals (+ session overview)",
+                "2. **Label Coder** — label(s) + rationale",
+                "3. **Boundary Critic** — boundary challenges / missing evidence",
+                "4. **Adjudicator** — final decision",
+            ]
+        ),
+    )
+
+    prompt_body = fenced_plain_text(truncate(p, max_len=max_prompt_len)) if p else "_empty_"
+    prompt_sec = section("Prompt to label", prompt_body)
+
+    head = "**CONTROLLER** · Label request received"
+    if csv_row_index is not None and csv_row_total is not None:
+        head += f"\n_CSV row **{csv_row_index}** / **{csv_row_total}**_"
+    elif csv_row_index is not None:
+        head += f"\n_CSV row **{csv_row_index}**_"
+
+    parts = [head, "", meta_table + hc_block, "", session_window, "", orch, "", prompt_sec]
+    out = "\n".join(parts).strip()
+    return truncate(out, max_len=DISCORD_MAX_LEN - 80)
+
+
 def format_prompt_received(prompt: str, *, max_len: int = 500) -> str:
     """
-    Format the initial controller message.
-
-    Requirements:
-    - Show the controller "orders" + the prompt.
-    - Entire message should be bold for strong visual separation.
+    Back-compat: controller ack with prompt only (no metadata/session table).
+    Prefer :func:`format_controller_label_ack` for Discord.
     """
-    text = truncate((prompt or "").strip(), max_len=max_len)
-    lines = [
-        "CONTROLLER",
-        "",
-        "ORDERS",
-        "1) Signal Extractor → extract evidence spans + candidate signals",
-        "2) Label Coder → assign label(s) with rationale",
-        "3) Boundary Critic → challenge boundaries / request missing evidence",
-        "4) Adjudicator → decide final label(s)",
-        "",
-        "PROMPT",
-        text or "_empty_",
-    ]
-    body = "\n".join(lines).strip()
-    # Bold across newlines is supported by Discord markdown.
-    return f"**{body}**"
+    return format_controller_label_ack(prompt, context=None, max_prompt_len=max_len)
 
 
 def format_hc_check(*, predicted: str | None, hc1: str, hc2: str) -> str:
@@ -269,20 +417,68 @@ def format_hc_check(*, predicted: str | None, hc1: str, hc2: str) -> str:
 def format_final_answer_summary(final_labels: list[Any]) -> str:
     """One-line summary of final labels for prominent display at top of Adjudicator message."""
     if not final_labels:
-        return "**Final answer:** _No labels_"
+        return "**⚖ Final:** _No labels_"
     parts = []
     for item in final_labels:
         if isinstance(item, dict):
             label = item.get("label", item.get("span_ref", ""))
             decision = item.get("decision", "")
             if decision:
-                parts.append(f"{label} ({decision})")
+                parts.append(f"`{label}` · decision `{decision}`")
             else:
-                parts.append(str(label))
+                parts.append(f"`{label}`")
         else:
             parts.append(str(item))
     line = " · ".join(parts)
-    return f"**Final answer:** {line}"
+    return f"**⚖ Final:** {line}"
+
+
+def format_adjudicator_discord(data: dict[str, Any]) -> str:
+    """
+    Full Adjudicator block: verdict line + optional Boundary-Critic weighed note + per-item
+    label/decision + **untruncated** rationale (scores + Boundary Critic analysis).
+    """
+    parts: list[str] = []
+    finals = data.get("final_labels") or []
+    parts.append(format_final_answer_summary(finals))
+    if data.get("boundary_critic_weighed"):
+        parts.append(
+            section(
+                "Integration",
+                "Boundary Critic output was **weighed** with `label_scores` (not argmax-only). See rationale below.",
+            )
+        )
+    for i, item in enumerate(finals):
+        if not isinstance(item, dict):
+            parts.append(str(item))
+            continue
+        span_ref = item.get("span_ref", i)
+        lbl = item.get("label", "")
+        dec = item.get("decision", "")
+        parts.append(
+            section(
+                f"Verdict (span {span_ref})",
+                f"**Label:** `{lbl}`\n**Decision:** `{dec}`",
+            )
+        )
+        rat = (item.get("rationale") or "").strip()
+        if rat:
+            parts.append(section("Full rationale — scores + Boundary Critic", rat))
+    uncertain = data.get("uncertain") or []
+    if uncertain:
+        parts.append(bullet_list([str(u) for u in uncertain], header="Uncertain"))
+    retry = data.get("retry")
+    if retry and isinstance(retry, dict):
+        parts.append(
+            key_value_pairs(
+                [
+                    ("Retry target", retry.get("target", "")),
+                    ("Instruction", str(retry.get("instruction", "") or "")),
+                ],
+                title="Retry",
+            )
+        )
+    return "\n\n".join(parts) if parts else "_No output_"
 
 
 def pipeline_result_discord(

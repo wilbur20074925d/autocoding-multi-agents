@@ -2,7 +2,8 @@
 Discord runner: 1 Controller bot + 4 display bots (Signal, Label, Critic, Judge).
 
 Flow:
-  Controller receives "Label this prompt..." → run pipeline → send_as_bot(role)
+  Controller receives "Label this prompt..." → parse optional metadata + session neighbors
+    (same channel, same `group`, contiguous send order) → run pipeline → send_as_bot(role)
     → SignalBot.send() | LabelBot.send() | CriticBot.send() | JudgeBot.send()
 
 If you set 5 bot tokens, each role sends with its own bot. If only the Controller
@@ -41,7 +42,15 @@ from .dispatcher import (
     SIGNAL_EXTRACTOR,
     prepare_four_bot_messages_split,
 )
-from .format import DISCORD_MAX_LEN, format_hc_check, format_prompt_received
+from .format import DISCORD_MAX_LEN, format_controller_label_ack, format_hc_check
+
+from cloudbot.pipeline.session_window import build_csv_session_neighbors
+
+from .session_memory import (
+    contiguous_neighbors_before,
+    parse_discord_label_message,
+    record_labeled_turn,
+)
 
 # Trigger phrase (case-insensitive)
 LABEL_PROMPT_TRIGGER = "label this prompt"
@@ -204,20 +213,52 @@ class ControllerBot(discord.Client):
         if LABEL_PROMPT_TRIGGER not in lower:
             return
 
-        prompt = _strip_mentions_for_prompt(content, message)
+        raw = _strip_mentions_for_prompt(content, message)
         channel_id = message.channel.id
+        prompt, meta = parse_discord_label_message(raw)
+        if not prompt:
+            await message.channel.send(
+                "No prompt text found. Put optional lines first (`group: …`, `timestamp-mm: …`, `people: …`, `context: …`), "
+                "then the utterance to label."
+            )
+            return
 
-        # Display the prompt received first (from Controller)
-        await message.channel.send(format_prompt_received(prompt))
+        group = (meta.get("group") or "").strip()
+        # Same channel + same group, contiguous in **sending order** (see session_memory)
+        before_nb = contiguous_neighbors_before(channel_id, group)
+
+        exec_ctx: dict[str, Any] = {
+            "group": group,
+            "timestamp": (meta.get("timestamp") or "").strip(),
+            "people": (meta.get("people") or "").strip(),
+            "context": (meta.get("context") or "").strip(),
+            "HC1": (meta.get("HC1") or "").strip(),
+            "HC2": (meta.get("HC2") or "").strip(),
+            "session_prompts_before": before_nb,
+            "session_prompts_after": [],
+        }
+
+        # Controller: metadata + session window + prompt (structured)
+        await message.channel.send(format_controller_label_ack(prompt, context=exec_ctx))
 
         # Run pipeline (sync); run in executor to avoid blocking
         loop = asyncio.get_event_loop()
-        pipeline_output = await loop.run_in_executor(
-            None,
-            lambda: self.run_pipeline(prompt, None),
-        )
+        try:
+            pipeline_output = await loop.run_in_executor(
+                None,
+                lambda s=prompt, c=dict(exec_ctx): self.run_pipeline(s, c),
+            )
+        except Exception as e:
+            await message.channel.send(f"Pipeline failed: {e}")
+            return
+
         if "prompt" not in pipeline_output:
             pipeline_output["prompt"] = prompt
+        # Pipeline sets context from exec_ctx; if a custom run_pipeline omits it, keep Discord metadata.
+        if not isinstance(pipeline_output.get("context"), dict):
+            pipeline_output["context"] = exec_ctx
+
+        record_labeled_turn(channel_id, group, prompt)
 
         messages = prepare_four_bot_messages_split(
             pipeline_output,
@@ -294,22 +335,31 @@ class ControllerBot(discord.Client):
             hc1 = (row.get("HC1") or row.get("hc1") or "").strip()
             hc2 = (row.get("HC2") or row.get("hc2") or "").strip()
 
-            await message.channel.send(format_prompt_received(sentence))
+            before_nb, after_nb = build_csv_session_neighbors(rows, i - 1, group)
+            exec_ctx = {
+                "group": group,
+                "timestamp": timestamp,
+                "people": people,
+                "context": ctx_tag,
+                "row_index": i,
+                "HC1": hc1,
+                "HC2": hc2,
+                "session_prompts_before": before_nb,
+                "session_prompts_after": after_nb,
+            }
+
+            await message.channel.send(
+                format_controller_label_ack(
+                    sentence,
+                    context=exec_ctx,
+                    csv_row_index=i,
+                    csv_row_total=len(rows),
+                )
+            )
 
             pipeline_output = await loop.run_in_executor(
                 None,
-                lambda: self.run_pipeline(
-                    sentence,
-                    {
-                        "group": group,
-                        "timestamp": timestamp,
-                        "people": people,
-                        "context": ctx_tag,
-                        "row_index": i,
-                        "HC1": hc1,
-                        "HC2": hc2,
-                    },
-                ),
+                lambda s=sentence, c=dict(exec_ctx): self.run_pipeline(s, c),
             )
             if "prompt" not in pipeline_output:
                 pipeline_output["prompt"] = sentence

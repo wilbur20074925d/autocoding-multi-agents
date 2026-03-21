@@ -15,6 +15,8 @@ class SignalExtractorOutput(TypedDict, total=False):
     evidence_spans: list[Any]
     candidate_signals: list[Any]
     ambiguity: list[Any]
+    # Session window + cognitive tilt (CE vs SD) from neighbors in same group
+    session_overview: dict[str, Any]
 
 
 class LabelCoderOutput(TypedDict, total=False):
@@ -38,6 +40,9 @@ class AdjudicatorOutput(TypedDict, total=False):
     final_labels: list[Any]
     uncertain: list[Any]
     retry: dict[str, Any] | None
+    # Set by pipeline postprocess: structured analysis (scores + Boundary Critic)
+    adjudication_analysis: str
+    boundary_critic_weighed: bool
 
 
 class PipelineOutput(TypedDict, total=False):

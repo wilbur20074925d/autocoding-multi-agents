@@ -22,11 +22,12 @@ from .format import (
     table_from_rows,
     key_value_pairs,
     truncate,
-    format_final_answer_summary,
     format_evidence_spans_full,
     format_full_prompt_section,
     format_boundary_challenge_block,
     fenced_plain_text,
+    format_adjudicator_discord,
+    format_session_overview_discord,
 )
 from .pipeline_output import PipelineOutput
 
@@ -107,10 +108,13 @@ def _label_struct_row(label: Any) -> list[str]:
 
 
 def _format_signal_extractor(data: dict[str, Any] | None) -> str:
-    """Format Signal Extractor output for Discord."""
+    """Format Signal Extractor: session window (if any), then evidence spans, then candidates."""
     if not data:
         return section("Signal Extractor", "_No output_")
     parts = []
+    overview = data.get("session_overview")
+    if overview is not None:
+        parts.append(format_session_overview_discord(overview))
     evidence = data.get("evidence_spans") or []
     if evidence:
         parts.append(format_evidence_spans_full(evidence))
@@ -274,43 +278,10 @@ def _format_hc_check(context: dict[str, Any] | None, final_labels: list[Any]) ->
 
 
 def _format_adjudicator(data: dict[str, Any] | None, context: dict[str, Any] | None = None) -> str:
-    """Format Adjudicator output for Discord (final answer summary + table + uncertain/retry)."""
+    """Format Adjudicator: full rationale (scores + Boundary Critic), no narrow table truncation."""
     if not data:
         return section("⚖ Adjudicator", "_No output_")
-    parts = []
-    final_labels = data.get("final_labels") or []
-    # Prominent one-line summary at top
-    parts.append(format_final_answer_summary(final_labels))
-    if final_labels:
-        rows = []
-        for i, item in enumerate(final_labels):
-            if isinstance(item, dict):
-                rows.append([
-                    *_label_struct_row(item.get("label", "")),
-                    item.get("decision", ""),
-                    (item.get("rationale") or "")[:70],
-                ])
-            else:
-                rows.append([*_label_struct_row(item), "", ""])
-        parts.append(table_from_rows(["Main label", "Sublabel", "Subsublabel", "Decision", "Rationale"], rows, title="Details"))
-    else:
-        parts.append(section("Details", "_None_"))
-    uncertain = data.get("uncertain") or []
-    if uncertain:
-        parts.append(bullet_list([str(u)[:100] for u in uncertain], header="Uncertain"))
-    retry = data.get("retry")
-    if retry and isinstance(retry, dict):
-        parts.append(
-            key_value_pairs(
-                [
-                    ("Retry target", retry.get("target", "")),
-                    ("Instruction", truncate(str(retry.get("instruction", "")), max_len=200)),
-                ],
-                title="Retry",
-            )
-        )
-    # HC check is posted by the Controller (separate message).
-    body = "\n\n".join(parts) if parts else "_No output_"
+    body = format_adjudicator_discord(data)
     return section("⚖ Adjudicator", body)
 
 

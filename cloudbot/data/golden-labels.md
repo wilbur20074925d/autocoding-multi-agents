@@ -155,6 +155,7 @@ Use these as the **default reference examples** for consistent human coding and 
 
 - **Positive**
   - "Hahaha."
+  - "hhh" / "hhhh" (text laughter)
   - "哈哈哈"
   - "LOL"
   - "I'm confused."
@@ -180,6 +181,7 @@ Use these as the **default reference examples** for consistent human coding and 
   - "I’ve worked as a TA before."
   - "I’m not familiar with this topic."
   - "I’ve never done this kind of task."
+  - "I actually study developmental science, so I'm super aware." (shares background / identity relevant to the interaction—not task content)
 - **Near-miss**
   - "Let's split tasks." → Coordinative.coordinate_participants
 

@@ -39,9 +39,9 @@ from .dispatcher import (
     BOUNDARY_CRITIC,
     LABEL_CODER,
     SIGNAL_EXTRACTOR,
-    prepare_four_bot_messages,
+    prepare_four_bot_messages_split,
 )
-from .format import format_hc_check, format_prompt_received
+from .format import DISCORD_MAX_LEN, format_hc_check, format_prompt_received
 
 # Trigger phrase (case-insensitive)
 LABEL_PROMPT_TRIGGER = "label this prompt"
@@ -219,24 +219,26 @@ class ControllerBot(discord.Client):
         if "prompt" not in pipeline_output:
             pipeline_output["prompt"] = prompt
 
-        messages = prepare_four_bot_messages(
+        messages = prepare_four_bot_messages_split(
             pipeline_output,
             include_prompt_in_first=True,
+            max_chunk_len=DISCORD_MAX_LEN,
         )
 
         # Each role sends with its own bot client, or via webhook so they appear as four different senders
-        for role_id, text in messages:
-            bot = self.role_to_bot.get(role_id)
-            if bot is not None:
-                await bot.send_to_channel(channel_id, text)
-            else:
-                # No separate bot for this role: send via webhook with role display name (four visible roles, one token)
-                webhook = await get_or_create_pipeline_webhook(message.channel)
-                display_name = ROLE_DISPLAY_NAMES.get(role_id, role_id)
-                if webhook is not None:
-                    await webhook.send(content=text, username=display_name)
+        for role_id, chunks in messages:
+            display_name = ROLE_DISPLAY_NAMES.get(role_id, role_id)
+            for text in chunks:
+                bot = self.role_to_bot.get(role_id)
+                if bot is not None:
+                    await bot.send_to_channel(channel_id, text)
                 else:
-                    await message.channel.send(f"**[{display_name}]**\n{text}")
+                    # No separate bot for this role: send via webhook with role display name (four visible roles, one token)
+                    webhook = await get_or_create_pipeline_webhook(message.channel)
+                    if webhook is not None:
+                        await webhook.send(content=text, username=display_name)
+                    else:
+                        await message.channel.send(f"**[{display_name}]**\n{text}")
 
     async def _handle_label_csv(self, message: Message) -> None:
         """
@@ -312,22 +314,24 @@ class ControllerBot(discord.Client):
             if "prompt" not in pipeline_output:
                 pipeline_output["prompt"] = sentence
 
-            messages = prepare_four_bot_messages(
+            messages = prepare_four_bot_messages_split(
                 pipeline_output,
                 include_prompt_in_first=True,
+                max_chunk_len=DISCORD_MAX_LEN,
             )
 
-            for role_id, text in messages:
-                bot = self.role_to_bot.get(role_id)
-                if bot is not None:
-                    await bot.send_to_channel(channel_id, text)
-                else:
-                    webhook = await get_or_create_pipeline_webhook(message.channel)
-                    display_name = ROLE_DISPLAY_NAMES.get(role_id, role_id)
-                    if webhook is not None:
-                        await webhook.send(content=text, username=display_name)
+            for role_id, chunks in messages:
+                display_name = ROLE_DISPLAY_NAMES.get(role_id, role_id)
+                for text in chunks:
+                    bot = self.role_to_bot.get(role_id)
+                    if bot is not None:
+                        await bot.send_to_channel(channel_id, text)
                     else:
-                        await message.channel.send(f"**[{display_name}]**\n{text}")
+                        webhook = await get_or_create_pipeline_webhook(message.channel)
+                        if webhook is not None:
+                            await webhook.send(content=text, username=display_name)
+                        else:
+                            await message.channel.send(f"**[{display_name}]**\n{text}")
 
             # After the four roles, Controller posts HC check (structured; no right/wrong).
             predicted = None

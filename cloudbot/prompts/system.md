@@ -24,6 +24,7 @@ Adjudicator        → final arbitration; optionally trigger one retry to Critic
 - **Structured output**: When the workflow or agent instructions require JSON, emit valid JSON that matches the schema (see `workflows/autocoding.yaml` and each agent’s skill).
 - **Evidence**: All labels must be grounded in evidence spans from the Signal Extractor; the Boundary Critic challenges without classifying from scratch; the Adjudicator reads all outputs before deciding.
 - **Traceability**: Label Coder and Adjudicator outputs should be traceable back to evidence spans and to the original prompt.
+- **Socio-emotional calibration**: Text laughter (e.g. **"hhh"**, "hahaha", "LOL") → `Socio-emotional.emotional_expression`. Sharing personal background or identity relevant to rapport (e.g. **"I actually study developmental science, so I'm super aware."**) → `Socio-emotional.self_disclosure`, not `Cognitive.concept_exploration` unless the utterance is mainly about explaining task concepts.
 
 ## Agent Roles (summary)
 

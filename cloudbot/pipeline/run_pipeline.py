@@ -110,7 +110,7 @@ def _clamp_round_score(x: float) -> float:
 _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     # Socio-emotional (often short / affective — check before generic cognitive)
     ("Socio-emotional.emotional_expression", (
-        "haha", "hahaha", "lol", "lmao", "omg", "hilarious", "funny",
+        "haha", "hahaha", "hhh", "hehe", "lol", "lmao", "omg", "hilarious", "funny",
         "frustrated", "annoyed", "nervous", "worried", "sad", "angry",
         "that's hilarious", "so funny", "哈哈", "哈哈哈", "😂", "😭", "😅",
     )),
@@ -123,6 +123,8 @@ _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
         "i've ", "i have ", "i was ", "i'm not familiar", "i am not familiar",
         "first time", "never done", "worked as", "my experience", "personally",
         "i don't know much", "not good at",
+        "i actually ", "i study ", "i'm super aware", "i am super aware",
+        "super aware", "my background", "my field", "i work in", "i'm a student",
     )),
     ("Coordinative.coordinate_participants", (
         "who should", "divide the", "split the task", "allocate", "you do ",
@@ -220,6 +222,9 @@ def _semantic_proxy_scores(text: str) -> dict[str, float]:
         return {c: _clamp_round_score(0.5) for c in codes}
 
     raw: dict[str, float] = {c: 0.0 for c in codes}
+    # Text-only laughter (e.g. "hhh", "hhhh") — not matched by substring "haha".
+    if re.fullmatch(r"h{3,}", t):
+        raw["Socio-emotional.emotional_expression"] += 3.2
     for label, phrases in _LABEL_SCORE_PATTERNS:
         if label not in raw:
             continue
@@ -266,8 +271,15 @@ def _semantic_proxy_scores(text: str) -> dict[str, float]:
         r"\b(i've|i have|not familiar|first time|experience|personally|never done)\b", t,
     ):
         raw["Socio-emotional.self_disclosure"] += 1.6
+    if re.search(
+        r"\b(i actually|i study|i'm super|i am super|super aware|developmental science|my field|my background|i work in|i'm a student|i work as)\b",
+        t,
+    ):
+        raw["Socio-emotional.self_disclosure"] += 2.4
     if re.search(r"\b(haha|lol|funny|hilarious|frustrated|nervous|worried|😂|哈哈)\b", t):
         raw["Socio-emotional.emotional_expression"] += 2.0
+    if re.search(r"\bhhh\b", t):
+        raw["Socio-emotional.emotional_expression"] += 1.6
 
     if "?" in t:
         raw["Metacognitive.planning"] += 0.9
@@ -312,7 +324,10 @@ def _infer_label_from_prompt(text: str) -> tuple[str, list[str], dict[str, float
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     chosen, top = ranked[0][0], ranked[0][1]
     stripped = (text or "").strip().lower()
-    if len(stripped) <= 20 and any(x in stripped for x in ("haha", "lol", "哈哈", "😂")):
+    if len(stripped) <= 20 and (
+        any(x in stripped for x in ("haha", "lol", "哈哈", "😂", "hhh"))
+        or re.fullmatch(r"h{3,}", stripped)
+    ):
         return "Socio-emotional.emotional_expression", [
             "Socio-emotional.emotional_expression",
             "Socio-emotional.encouragement",
@@ -384,16 +399,20 @@ def _segment_prompt_for_extraction(text: str) -> list[tuple[str, int, int]]:
         dedup.append((seg, s, e))
     if not dedup:
         return [(text, 0, len(text))]
-    return dedup[:8]
+    # Long prompts: keep enough clauses for evidence (display shows full text per span).
+    return dedup[:32]
 
 
 def _sentiment_tag(segment: str) -> str:
     t = segment.lower()
-    if any(k in t for k in ("haha", "lol", "hilarious", "funny", "frustrated", "worried", "nervous", "angry", "sad", "😂", "哈哈")):
+    if any(k in t for k in ("haha", "lol", "hilarious", "funny", "frustrated", "worried", "nervous", "angry", "sad", "😂", "哈哈", "hhh")):
         return "affective"
     if re.search(r"\b(thank|thanks|good job|great job|nice|appreciate)\b", t):
         return "supportive"
-    if re.search(r"\b(not familiar|first time|never done|i've|i have|my experience)\b", t):
+    if re.search(
+        r"\b(not familiar|first time|never done|i've|i have|my experience|i actually|i study|super aware|developmental science|my field|my background)\b",
+        t,
+    ):
         return "self_disclosure"
     return "neutral_task"
 

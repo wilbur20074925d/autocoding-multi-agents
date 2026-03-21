@@ -11,7 +11,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable
 
-from .dispatcher import prepare_four_bot_messages
+from .dispatcher import prepare_four_bot_messages_split
+from .format import DISCORD_MAX_LEN
 
 try:
     from cloudbot.pipeline import run_autocoding_pipeline as _default_pipeline
@@ -57,22 +58,31 @@ async def handle_discord_message(
         send_as_bot: Async or sync (role_id, channel_id, content) -> None. Default: no-op.
 
     Returns:
-        List of (role_id, content) that were (or would be) posted.
+        List of (role_id, content) for each Discord chunk posted (a role may have multiple
+        chunks when the prompt or evidence spans are long).
     """
     run_pipeline = run_pipeline or _default_pipeline or run_autocoding_pipeline_placeholder
     pipeline_output = run_pipeline(prompt, context)
     if "prompt" not in pipeline_output:
         pipeline_output["prompt"] = prompt
 
-    messages = prepare_four_bot_messages(
+    messages = prepare_four_bot_messages_split(
         pipeline_output,
         include_prompt_in_first=True,
+        max_chunk_len=DISCORD_MAX_LEN,
     )
 
+    posted: list[tuple[str, str]] = []
     if send_as_bot:
-        for role_id, content in messages:
-            result = send_as_bot(role_id, channel_id, content)
-            if asyncio.iscoroutine(result):
-                await result
+        for role_id, chunks in messages:
+            for content in chunks:
+                result = send_as_bot(role_id, channel_id, content)
+                if asyncio.iscoroutine(result):
+                    await result
+                posted.append((role_id, content))
+    else:
+        for role_id, chunks in messages:
+            for content in chunks:
+                posted.append((role_id, content))
 
-    return messages
+    return posted

@@ -64,19 +64,20 @@ Types are defined in **`cloudbot/discord/pipeline_output.py`** for reference.
 From the main controller (after you have `pipeline_output` from OpenClaw):
 
 ```python
-from cloudbot.discord import prepare_four_bot_messages, DISPLAY_BOT_ORDER
+from cloudbot.discord import prepare_four_bot_messages_split, DISPLAY_BOT_ORDER
 
 # pipeline_output = result from OpenClaw autocoding workflow
-messages = prepare_four_bot_messages(pipeline_output, include_prompt_in_first=True)
+# Prefer split when prompts or evidence spans are long (Discord 2000-char limit per message).
+messages = prepare_four_bot_messages_split(pipeline_output, include_prompt_in_first=True)
 
-# messages is list of (role_id, content): length 4, in order
-for role_id, content in messages:
-    # Post with the Discord client for this bot identity
-    await send_as_bot(role_id, channel_id, content)
+# messages is list of (role_id, list[str]): four roles in order; each role may have multiple chunks
+for role_id, chunks in messages:
+    for content in chunks:
+        await send_as_bot(role_id, channel_id, content)
 ```
 
-- **`prepare_four_bot_messages`**: Returns `list[(role_id, str)]` — one message per bot, truncated to Discord limit. Post in order so the thread reads: Signal Extractor → Label Coder → Boundary Critic → Adjudicator.
-- **`prepare_four_bot_messages_split`**: Same but each bot gets `list[str]` (chunks) when content is long; post each chunk in sequence for that bot.
+- **`prepare_four_bot_messages`**: Returns `list[(role_id, str)]` — one message per bot (may truncate at ~1900 chars if content is huge).
+- **`prepare_four_bot_messages_split`**: Same pipeline formatting but each role gets `list[str]` chunks (~1900 chars); **use this in production** so long prompts and full evidence-span text are not cut off. Post chunks in order for each role.
 
 Role ids: `signal_extractor`, `label_coder`, `boundary_critic`, `adjudicator` (constants in `cloudbot.discord.dispatcher`).
 
@@ -84,8 +85,8 @@ Role ids: `signal_extractor`, `label_coder`, `boundary_critic`, `adjudicator` (c
 
 1. **Receive**: Handle incoming Discord message (e.g. single prompt or trigger to run on a CSV).
 2. **Invoke OpenClaw**: Run the autocoding workflow with the prompt (and optional context). Backend logic stays in OpenClaw; the controller only passes input and receives the structured output above.
-3. **Dispatch**: Call `prepare_four_bot_messages(pipeline_output)`.
-4. **Post**: For each `(role_id, content)`, use the Discord client/token for that role and send the message to the channel (or reply in thread). Post in order so the conversation reads naturally.
+3. **Dispatch**: Call `prepare_four_bot_messages_split(pipeline_output)` (or `prepare_four_bot_messages` for short outputs only).
+4. **Post**: For each `(role_id, chunks)`, send every chunk in order with the Discord client/token for that role.
 
 ## Four Bot Identities
 

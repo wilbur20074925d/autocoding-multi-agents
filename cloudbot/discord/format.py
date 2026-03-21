@@ -21,6 +21,69 @@ def truncate(text: str, max_len: int = DISCORD_MAX_LEN, suffix: str = "...") -> 
     return text[: max_len - len(suffix)] + suffix
 
 
+def fenced_plain_text(text: str) -> str:
+    """
+    Wrap text in a Discord ``` fence when safe; otherwise use blockquote lines.
+    Does not truncate — use split_messages() on the parent message for Discord limits.
+    """
+    raw = (text or "").replace("\r\n", "\n")
+    if not raw:
+        return "_empty_"
+    if "```" in raw:
+        # Avoid breaking the fence: quote each line (readable for long prompts).
+        return "\n".join(f"> {line}" if line else ">" for line in raw.split("\n"))
+    return f"```\n{raw}\n```"
+
+
+def format_full_prompt_section(prompt: str | None) -> str:
+    """Full prompt for Signal Extractor (and similar); no 400-char cap."""
+    p = (prompt or "").strip()
+    if not p:
+        return section("Prompt", "_empty_")
+    return section("Prompt", fenced_plain_text(p))
+
+
+def format_evidence_spans_full(
+    evidence: list[Any],
+    *,
+    max_spans: int = 64,
+    include_overview_table: bool = True,
+) -> str:
+    """
+    Evidence spans with **verbatim full text** per span (no column truncation).
+    Optional compact overview table (#, start, end, len) for scanning.
+    """
+    if not evidence:
+        return section("Evidence spans", "_None_")
+    parts: list[str] = []
+    rows: list[list[Any]] = []
+    blocks: list[str] = []
+    for i, span in enumerate(evidence[:max_spans]):
+        if isinstance(span, dict):
+            s = span.get("span", "")
+            st = span.get("start", "")
+            en = span.get("end", "")
+            reason = (span.get("reason") or "").strip()
+            slen = len(s) if isinstance(s, str) else 0
+            ss = s if isinstance(s, str) else str(s)
+            rows.append([i, st, en, slen])
+            hdr = f"**Span [{i}]** · `{st}`–`{en}` · {slen} chars"
+            if reason:
+                hdr += f"\n_{reason}_"
+            blocks.append(hdr + "\n" + fenced_plain_text(ss))
+        else:
+            rows.append([i, "", "", len(str(span))])
+            blocks.append(f"**Span [{i}]**\n{fenced_plain_text(str(span))}")
+    if include_overview_table and rows:
+        parts.append(
+            table_from_rows(["#", "Start", "End", "Len"], rows, title="Evidence spans — overview"),
+        )
+    parts.append("**Evidence spans — full text**\n\n" + "\n\n".join(blocks))
+    if len(evidence) > max_spans:
+        parts.append(f"\n_…and {len(evidence) - max_spans} more span(s) not shown (raise max_spans)._")
+    return "\n\n".join(parts)
+
+
 def section(title: str, body: str, *, use_blockquote: bool = False) -> str:
     """Format a section with bold title and body. Optionally wrap body in blockquote."""
     if use_blockquote:

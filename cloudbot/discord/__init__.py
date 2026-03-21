@@ -10,6 +10,9 @@ from .format import (
     table_from_rows,
     bullet_list,
     truncate,
+    format_evidence_spans_full,
+    format_full_prompt_section,
+    fenced_plain_text,
 )
 from .dispatcher import (
     ADJUDICATOR,
@@ -34,6 +37,9 @@ __all__ = [
     "pipeline_result_discord",
     "split_messages",
     "truncate",
+    "format_evidence_spans_full",
+    "format_full_prompt_section",
+    "fenced_plain_text",
     # Dispatcher (1 orchestrator + 4 display bots)
     "SIGNAL_EXTRACTOR",
     "LABEL_CODER",

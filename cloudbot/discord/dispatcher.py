@@ -23,6 +23,8 @@ from .format import (
     key_value_pairs,
     truncate,
     format_final_answer_summary,
+    format_evidence_spans_full,
+    format_full_prompt_section,
 )
 from .pipeline_output import PipelineOutput
 
@@ -109,17 +111,7 @@ def _format_signal_extractor(data: dict[str, Any] | None) -> str:
     parts = []
     evidence = data.get("evidence_spans") or []
     if evidence:
-        rows = []
-        for i, span in enumerate(evidence[:20]):
-            if isinstance(span, dict):
-                rows.append([
-                    span.get("span", str(span))[:60],
-                    span.get("start", ""),
-                    span.get("end", ""),
-                ])
-            else:
-                rows.append([str(span)[:60], "", ""])
-        parts.append(table_from_rows(["Span", "Start", "End"], rows, title="Evidence spans"))
+        parts.append(format_evidence_spans_full(evidence))
     else:
         parts.append(section("Evidence spans", "_None_"))
     candidates = data.get("candidate_signals") or []
@@ -356,7 +348,7 @@ def prepare_four_bot_messages(
     Args:
         pipeline_output: Full result from OpenClaw (keys: signal_extractor, label_coder,
                          boundary_critic, adjudicator; optional: prompt, context).
-        include_prompt_in_first: If True, prepend a short prompt summary to the Signal Extractor message.
+        include_prompt_in_first: If True, prepend the **full** prompt (code block / quoted) to the Signal Extractor message.
         max_message_len: Truncate each bot message to this length (default Discord-safe).
 
     Returns:
@@ -373,7 +365,7 @@ def prepare_four_bot_messages(
     se_data = pipeline_output.get("signal_extractor")
     msg1 = _format_signal_extractor(se_data)
     if prompt:
-        msg1 = section("Prompt", truncate(prompt, max_len=400)) + "\n\n" + msg1
+        msg1 = format_full_prompt_section(prompt) + "\n\n" + msg1
     if ctx_block:
         msg1 = ctx_block + "\n\n" + msg1
     out.append((SIGNAL_EXTRACTOR, truncate(msg1, max_len=max_message_len)))
@@ -412,10 +404,11 @@ def prepare_four_bot_messages_split(
     Same as prepare_four_bot_messages but each bot gets a list of message chunks
     (for posting multiple messages per bot when content is long).
     """
+    # Build without per-message truncation; split_messages applies Discord-safe chunking.
     raw = prepare_four_bot_messages(
         pipeline_output,
         include_prompt_in_first=include_prompt_in_first,
-        max_message_len=max_chunk_len * 10,
+        max_message_len=1_000_000,
     )
     result: list[tuple[str, list[str]]] = []
     for role_id, text in raw:

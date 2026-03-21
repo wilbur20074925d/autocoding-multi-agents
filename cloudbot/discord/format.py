@@ -77,7 +77,13 @@ def format_session_overview_discord(overview: dict[str, Any] | None) -> str:
         top_fmt = " · ".join(f"`{k}` {v}" for k, v in list(agg.items())[:5])
         lines.extend(["", f"**Session-averaged fit (top codes):** {top_fmt}"])
 
-    lines.extend(["", "**Per-utterance top label** (semantic proxy, for orientation only)"])
+    lines.extend(
+        [
+            "",
+            "**Per-utterance top label** (semantic proxy, orientation only — **not** final taxonomy decision)",
+            "_Scores are calibrated on 0–5: neighboring lines are **one** input among cues; values are **not** all 5.0._",
+        ]
+    )
     for row in overview.get("per_utterance_top") or []:
         role = str(row.get("role") or "")
         pv = str(row.get("preview") or "")

@@ -363,17 +363,54 @@ def _build_session_overview_dict(
 
 
 # --- Label scoring: semantic (LLM) + semantic proxy (no-LLM fallback) ---
-# Each taxonomy code gets an independent score in [0, 5.00] with 2 decimal places.
-# Heuristic path uses tier/tier2 cues + smoothing so prompts rarely collapse to all zeros.
+# Each taxonomy code gets a score in [0, 5.00] with 2 decimal places.
+# Heuristic path: **must not** force argmax to 5.00 (that made every utterance's top label 5.0).
+# Session window / metadata only adjust **raw** evidence; softmax + damped mapping yields spread.
 
 SCORE_MAX = 5.0
 SCORE_DECIMALS = 2
 # On 0–5 scale: small margin between #1 and #2 ⇒ Boundary Critic refines.
 SCORE_CLOSE_THRESHOLD = 0.75
+# Softer softmax → neighbors + multi-cue text don't collapse to prob≈1 on one code.
+_SOFTMAX_TEMPERATURE = 1.82
+# Cap stacked regex hits per label before log compression (joint evidence, not infinite sum).
+_RAW_SCORE_CAP_PER_LABEL = 8.0
+# Map prob → 0–5: exponent <1 so only strong dominance approaches 5.0 (never “all tops are 5.0”).
+_SCORE_FROM_PROB_EXPONENT = 0.50
+_SCORE_FLOOR = 0.06
 
 
 def _clamp_round_score(x: float) -> float:
     return round(max(0.0, min(SCORE_MAX, float(x))), SCORE_DECIMALS)
+
+
+def _softmax_scores_from_raw(raw: dict[str, float], codes: list[str]) -> dict[str, float]:
+    """
+    Convert per-label **raw** evidence into differentiated 0–5 scores.
+
+    Unlike ``5 * p_i / max(p)``, the top label is **not** always 5.00; flat or ambiguous
+    distributions land in the ~1–3 band; clear single-label evidence reaches ~4–5.
+    """
+    order = sorted(codes)
+    capped = [
+        min(_RAW_SCORE_CAP_PER_LABEL, max(0.0, float(raw.get(c, 0.0) or 0.0)))
+        for c in order
+    ]
+    logits = [math.log1p(x) + 0.12 for x in capped]
+    m = max(logits)
+    T = _SOFTMAX_TEMPERATURE
+    exps = [math.exp((x - m) / T) for x in logits]
+    ssum = sum(exps) or 1e-12
+    probs = [e / ssum for e in exps]
+    spread = SCORE_MAX - _SCORE_FLOOR
+    alpha = _SCORE_FROM_PROB_EXPONENT
+    out: dict[str, float] = {}
+    for i, c in enumerate(order):
+        p = probs[i]
+        # p in (0,1]; pow pulls apart mid-range; session/context only affect raw → p here.
+        s = _SCORE_FLOOR + spread * (p**alpha)
+        out[c] = _clamp_round_score(max(_SCORE_FLOOR, s))
+    return out
 
 
 _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
@@ -467,17 +504,7 @@ def _baseline_semantic_spread(t: str, codes: list[str]) -> dict[str, float]:
     mx = max(raw.values())
     if mx <= 0:
         return {c: _clamp_round_score(1.0) for c in codes}
-    order = sorted(codes)
-    logits = [raw[c] + 0.28 for c in order]
-    m = max(logits)
-    exps = [math.exp(x - m) for x in logits]
-    ssum = sum(exps)
-    probs = [e / ssum for e in exps]
-    max_p = max(probs) or 1e-9
-    return {
-        order[i]: _clamp_round_score(max(0.05, SCORE_MAX * probs[i] / max_p))
-        for i in range(len(order))
-    }
+    return _softmax_scores_from_raw(raw, codes)
 
 
 def _semantic_proxy_scores(
@@ -565,18 +592,7 @@ def _semantic_proxy_scores(
     mx = max(raw.values())
     if mx <= 0:
         return _baseline_semantic_spread(t, codes)
-    # Soft distribution over labels (semantic proxy): avoids a long tail of exact 0.00 scores.
-    order = sorted(codes)
-    logits = [raw[c] + 0.28 for c in order]
-    m = max(logits)
-    exps = [math.exp(x - m) for x in logits]
-    ssum = sum(exps)
-    probs = [e / ssum for e in exps]
-    max_p = max(probs) or 1e-9
-    return {
-        order[i]: _clamp_round_score(max(0.05, SCORE_MAX * probs[i] / max_p))
-        for i in range(len(order))
-    }
+    return _softmax_scores_from_raw(raw, codes)
 
 
 def _label_scores(text: str) -> dict[str, float]:
@@ -1286,7 +1302,8 @@ def _maybe_repair_concept_exploration_bias(
     scores = _semantic_proxy_scores(cleaned_prompt, out.get("context"))
     best_h, best_s = _best_label_from_scores(scores)
     concept_s = scores.get("Cognitive.concept_exploration", 0.0)
-    if best_h == "Cognitive.concept_exploration" or best_s < 2.25:
+    # Heuristic scores are calibrated lower than the old “top always 5.0” scale; use a modest floor.
+    if best_h == "Cognitive.concept_exploration" or best_s < 1.95:
         return
     if best_s <= concept_s + 0.35:
         return
@@ -1423,7 +1440,7 @@ Rules:
 - **Cognitive tier2 with 上下文:** When session tags (e.g. group id, no-gai/gai, discussion) suggest **collaborative task talk**, terse lines like *Naming and defining.* usually mean **naming/labeling the solution or answer** → **Cognitive.solution_development**, not abstract concept exploration.
 - **Evidence:** Every Label Coder and Adjudicator label must cite a **verbatim substring** of the prompt in `evidence_used` / rationale; candidate_signals should list 1–3 plausible codes when ambiguous.
 - **Signal Extractor precision:** split the prompt into multiple minimal evidence spans (sentence/clause level), attach precise start/end offsets, keep each span verbatim, and include sentiment-aware rationale per span (e.g. affective/supportive/neutral_task). Do not collapse to one full-span evidence unless the prompt is too short to segment.
-- **Label Coder must output `label_scores`:** an object with **every** code in the allowed list as a key exactly once. Each value must be a number from **0.00 to 5.00** (two decimals), representing **semantic fit** of the utterance to that label (intent, not keyword counts). **5.00** = strongest match for that category; **0.00** = no meaningful fit. Judge each label **independently** by meaning (cognitive vs metacognitive vs coordinative vs socio-emotional, then tier2). The pipeline ranks codes and sets the **final label to the highest score** when informative; if #1 and #2 are **close** (small margin on this 0–5 scale), the Boundary Critic refines the boundary.
+- **Label Coder must output `label_scores`:** an object with **every** code in the allowed list as a key exactly once. Each value must be a number from **0.00 to 5.00** (two decimals), representing **semantic fit** (intent, not keyword counts). **Calibrate:** do **not** set every plausible code to 5.00—reserve **~4.5–5.00** for a **clear best** fit; **~2.5–4.0** for strong but not exclusive fit; **~1.0–2.5** for weak/background plausibility; **~0.00–1.00** for no meaningful fit. At most **one** code should be near 5.00 unless the utterance is genuinely multi-intent. Session/window context is **one** input among many; scores must still reflect the **current** utterance. The pipeline ranks codes; if #1 and #2 are **close**, the Boundary Critic refines the boundary.
 - Use golden-labels boundaries and decision rules below.
 - Keep evidence spans minimal but sufficient; use span_ref=0 for the whole prompt if needed.
 - Boundary Critic must only challenge, not decide.

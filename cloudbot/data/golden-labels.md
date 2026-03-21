@@ -71,6 +71,7 @@ Apply in order when in doubt:
 | "That’s hilarious!" | Socio-emotional.emotional_expression | Not Cognitive |
 | "Hahaha" / "哈哈哈" / "LOL" / "hhh" | Socio-emotional.emotional_expression | Not encouragement |
 | "Thank you!" | Socio-emotional.encouragement | Not emotional_expression |
+| "It's okay." | Socio-emotional.encouragement | Not Metacognitive.planning |
 | "I’ve worked as a TA before." | Socio-emotional.self_disclosure | Not Cognitive.concept_exploration |
 
 ---
@@ -164,6 +165,7 @@ Use these as the **default reference examples** for consistent human coding and 
 
 - **Positive**
   - "Good job."
+  - "It's okay."
   - "Don't worry, we can do it."
   - "Nice idea—keep going."
 - **Near-miss**

@@ -615,6 +615,63 @@ def _ensure_boundary_critic_scores_close_challenge(out: dict[str, Any]) -> None:
     bc["challenges"] = challenges
 
 
+def _ensure_boundary_critic_ambiguity_challenge(out: dict[str, Any]) -> None:
+    """
+    If Signal Extractor already marked a close-score ambiguity, Boundary Critic must challenge.
+    This prevents silent 'Challenges: None' when uncertainty is explicitly detected upstream.
+    """
+    se = out.get("signal_extractor") or {}
+    ambiguities = se.get("ambiguity") or []
+    if not isinstance(ambiguities, list) or not ambiguities:
+        return
+    close_amb = None
+    for a in ambiguities:
+        if not isinstance(a, dict):
+            continue
+        reason = str(a.get("reason") or "").lower()
+        if "close top-two" in reason or "scores are close" in reason or "top two" in reason:
+            close_amb = a
+            break
+    if close_amb is None:
+        return
+
+    bc = out.get("boundary_critic")
+    if not isinstance(bc, dict):
+        bc = {}
+        out["boundary_critic"] = bc
+    challenges = bc.get("challenges")
+    if not isinstance(challenges, list):
+        challenges = []
+    if any(isinstance(c, dict) and "margin=" in str(c.get("reason") or "") for c in challenges):
+        return
+    if any(isinstance(c, dict) and "ambiguous" in str(c.get("question") or "").lower() for c in challenges):
+        return
+
+    lc = out.get("label_coder") or {}
+    assigned = ""
+    labs = lc.get("labels") or []
+    if labs and isinstance(labs[0], dict):
+        assigned = str(labs[0].get("label") or "")
+    ranked = lc.get("label_scores_ranked") or []
+    runner_up = ""
+    if isinstance(ranked, list) and len(ranked) > 1 and isinstance(ranked[1], dict):
+        runner_up = str(ranked[1].get("label") or "")
+
+    challenges.append(
+        {
+            "span_ref": int(close_amb.get("span_ref", 0)),
+            "assigned_label": assigned,
+            "question": "Ambiguous close scores detected — should this span be re-labeled?",
+            "reason": (
+                "Signal Extractor marked close top-two ambiguity; Boundary Critic should refine "
+                "tier1/tier2 boundary using golden-labels rules."
+            ),
+            "suggested_alternative": runner_up,
+        }
+    )
+    bc["challenges"] = challenges
+
+
 def _postprocess_pipeline_output(
     out: dict[str, Any],
     cleaned_prompt: str,
@@ -626,6 +683,7 @@ def _postprocess_pipeline_output(
     _ensure_label_coder_full_scores(out, cleaned_prompt, allowed_codes)
     _sync_label_coder_and_adjudicator_from_scores(out)
     _ensure_boundary_critic_scores_close_challenge(out)
+    _ensure_boundary_critic_ambiguity_challenge(out)
 
 
 def _maybe_repair_concept_exploration_bias(
@@ -734,6 +792,7 @@ Rules:
 - Use golden-labels boundaries and decision rules below.
 - Keep evidence spans minimal but sufficient; use span_ref=0 for the whole prompt if needed.
 - Boundary Critic must only challenge, not decide.
+- If Signal Extractor ambiguity says close top-two scores (or equivalent), Boundary Critic must output at least one challenge for that span (no empty challenges in this case).
 - Adjudicator must decide (accept_coder / accept_critic / combine / uncertain) and justify.
 
 Golden-labels criteria excerpt:
@@ -830,6 +889,22 @@ def run_autocoding_pipeline(
 
     # --- Boundary Critic ---
     challenges: list[dict[str, Any]] = []
+    # Enforce challenge when extractor already marks close-score ambiguity.
+    for a in signal_extractor.get("ambiguity", []):
+        if not isinstance(a, dict):
+            continue
+        reason = str(a.get("reason") or "").lower()
+        if "close top-two" in reason or "top two" in reason:
+            challenges.append(
+                {
+                    "span_ref": int(a.get("span_ref", 0)),
+                    "assigned_label": chosen,
+                    "question": "Top two scores are close — should this label be revised?",
+                    "reason": "Extractor ambiguity indicates close scores; refine boundary by golden-labels criteria.",
+                    "suggested_alternative": cand_list[1] if len(cand_list) > 1 else "",
+                }
+            )
+            break
     if "reasoning" in cleaned.lower() and "Metacognitive" in chosen:
         challenges.append({
             "assigned_label": chosen,

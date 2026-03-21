@@ -21,6 +21,12 @@ class LabelCoderOutput(TypedDict, total=False):
     labels: list[Any]
     uncertain: list[Any]
     revision_note: str | None
+    # Full taxonomy scores (every Tier1.tier2 code), plus display helpers for Boundary Critic / UI
+    label_scores: dict[str, float]
+    label_scores_ranked: list[dict[str, Any]]
+    scores_close: bool
+    label_scores_margin_top2: float
+    label_scores_display: str
 
 
 class BoundaryCriticOutput(TypedDict, total=False):

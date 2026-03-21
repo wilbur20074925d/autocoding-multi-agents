@@ -24,6 +24,7 @@ Second agent in the pipeline. You take the **original prompt** and **extracted e
 ## Outputs (to Boundary Critic, then Adjudicator)
 
 - **Final labels** per span or per prompt segment: `tier1.tier2` from **cloudbot/data/label-taxonomy.csv**
+- **`label_scores` (required in pipeline):** For **every** taxonomy code, output a **non-negative numeric score** (relative strength). The Adjudicator / runtime ranks all codes and typically selects the **highest** as the final label when the top score is informative. This gives the Boundary Critic a **semi-structured score table** to challenge close calls.
 - **Evidence used**: which span(s) support each assigned label (exact quote or span_ref)
 - Short **rationale** per label (optional but recommended)
 
@@ -71,10 +72,24 @@ Structured so Boundary Critic and Adjudicator can use it. **Include rationale fo
   "labels": [
     { "span_ref": 0, "label": "Cognitive.concept_exploration", "evidence_used": "exact quote", "rationale": "Why this label: tier1=Cognitive (content question); tier2=concept_exploration (clarifying concept); evidence span explicitly asks for concept." }
   ],
+  "label_scores": {
+    "Cognitive.concept_exploration": 6.0,
+    "Cognitive.solution_development": 1.0,
+    "Metacognitive.planning": 0.5,
+    "Metacognitive.evaluating": 0.0,
+    "Metacognitive.monitoring": 0.0,
+    "Coordinative.coordinate_participants": 0.0,
+    "Coordinative.coordinate_procedures": 0.0,
+    "Socio-emotional.emotional_expression": 0.0,
+    "Socio-emotional.encouragement": 0.0,
+    "Socio-emotional.self_disclosure": 0.0
+  },
   "uncertain": [],
   "revision_note": null
 }
 ```
+
+(The runtime may add `label_scores_ranked`, `scores_close`, `label_scores_display`, and `label_scores_margin_top2` for Discord and the Boundary Critic.)
 
 After a revision round, set `revision_note` to a short summary of **what was changed and why** (reasons for accepting or rejecting the critic’s challenge).
 

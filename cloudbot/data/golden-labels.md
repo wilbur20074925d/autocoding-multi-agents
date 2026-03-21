@@ -53,6 +53,7 @@ Apply in order when in doubt:
 1. **Tier1 first:** Is it about *content* (what) → Cognitive. *Process* (how we do it) → Metacognitive. *Who does what / logistics* → Coordinative. *Feelings, support, belonging* → Socio-emotional.
 2. **Cognitive tier2:** About *concepts/definitions/learning* → concept_exploration. About *solutions, answers, task product* (naming, defining, analyzing the solution) → solution_development.
 3. **Metacognitive tier2:** About *how to approach or plan* → planning. About *progress, pace, on track* → monitoring. About *judging quality of solution/output* → evaluating.
+4. **No blanket default:** Do **not** assign `Cognitive.concept_exploration` unless the utterance is **mainly** about clarifying or exploring **concepts/meanings**. Laughter, thanks, coordination, metacognitive process talk, or solution/option talk should use the matching codes above—not concept_exploration as a catch-all.
 
 ---
 
@@ -68,6 +69,7 @@ Apply in order when in doubt:
 | "We can divide the task into three parts." | Coordinative.coordinate_participants | Not Metacognitive.planning |
 | "You go first." | Coordinative.coordinate_procedures | Not Socio-emotional.encouragement |
 | "That’s hilarious!" | Socio-emotional.emotional_expression | Not Cognitive |
+| "Hahaha" / "哈哈哈" / "LOL" / "hhh" | Socio-emotional.emotional_expression | Not encouragement |
 | "Thank you!" | Socio-emotional.encouragement | Not emotional_expression |
 | "I’ve worked as a TA before." | Socio-emotional.self_disclosure | Not Cognitive.concept_exploration |
 
@@ -148,10 +150,14 @@ Use these as the **default reference examples** for consistent human coding and 
 ### Socio-emotional.emotional_expression
 
 - **Positive**
+  - "Hahaha."
+  - "哈哈哈"
+  - "LOL"
   - "I'm confused."
   - "I'm frustrated."
   - "I'm nervous about this."
 - **Near-miss**
+  - "Great job!" → Socio-emotional.encouragement
   - "We're behind schedule." → Metacognitive.monitoring
 
 ### Socio-emotional.encouragement

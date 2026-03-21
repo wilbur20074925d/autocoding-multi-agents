@@ -84,6 +84,28 @@ def json_block(obj: Any) -> str:
     return code_block(truncate(raw, max_len=DISCORD_MAX_LEN - 10), "json")
 
 
+def build_label_scores_display(
+    label_scores: dict[str, float],
+    *,
+    title: str = "Label scores (all taxonomy codes)",
+    max_rows: int | None = None,
+) -> str:
+    """
+    Semi-structured score table for Discord: rank, label, numeric score, top-N marker.
+    Use monospace table (code block) for alignment.
+    """
+    if not label_scores:
+        return section(title, "_No scores_")
+    ranked = sorted(label_scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    if max_rows is not None:
+        ranked = ranked[:max_rows]
+    rows: list[list[Any]] = []
+    for i, (lab, sc) in enumerate(ranked, start=1):
+        semi = "★ top" if i == 1 else ("★★" if i == 2 else ("★★★" if i == 3 else ""))
+        rows.append([i, lab, f"{float(sc):.2f}", semi])
+    return table_from_rows(["#", "Label (Tier1.tier2)", "Score", "Semi"], rows, title=title)
+
+
 def bullet_list(items: list[str], *, header: str | None = None) -> str:
     """Format a bullet list. Use • for a clean look."""
     lines = [f"• {item}" for item in items]

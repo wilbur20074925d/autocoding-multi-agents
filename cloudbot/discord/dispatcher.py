@@ -12,6 +12,7 @@ to per-bot messages.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .format import (
@@ -158,6 +159,27 @@ def _format_label_coder(data: dict[str, Any] | None) -> str:
         parts.append(table_from_rows(["Main label", "Sublabel", "Subsublabel", "Evidence", "Rationale"], rows, title="Labels"))
     else:
         parts.append(section("Labels", "_None_"))
+    disp = data.get("label_scores_display")
+    if disp:
+        parts.append(section("All label scores (semi-table)", truncate(str(disp), max_len=1600)))
+    scores = data.get("label_scores")
+    if isinstance(scores, dict) and scores:
+        parts.append(section("label_scores (JSON)", truncate(json.dumps(scores, indent=2, ensure_ascii=False), max_len=900)))
+    ranked = data.get("label_scores_ranked")
+    if isinstance(ranked, list) and ranked:
+        parts.append(
+            section(
+                "Ranked scores",
+                truncate(json.dumps(ranked[:12], indent=2, ensure_ascii=False), max_len=700),
+            )
+        )
+    if data.get("scores_close"):
+        parts.append(
+            section(
+                "Scores close?",
+                f"**Yes** — margin #1−#2 = `{data.get('label_scores_margin_top2')}`. Boundary Critic should refine.",
+            )
+        )
     uncertain = data.get("uncertain") or []
     if uncertain:
         parts.append(bullet_list([str(u)[:100] for u in uncertain], header="Uncertain"))

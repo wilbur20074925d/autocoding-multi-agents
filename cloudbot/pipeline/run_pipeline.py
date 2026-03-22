@@ -824,6 +824,52 @@ def _baseline_semantic_spread(t: str, codes: list[str]) -> dict[str, float]:
     return _softmax_scores_from_raw(raw, codes)
 
 
+def _apply_informational_vs_socioemotional_bias(raw: dict[str, float], t: str) -> None:
+    """
+    Socio-emotional.emotional_expression is for affect/reaction — not informational questions
+    about concepts, Bloom, taxonomy, or other learning content. Demote EE / self_disclosure
+    when the utterance primarily carries information-seeking or conceptual content.
+    """
+    tl = (t or "").strip().lower()
+    if not tl:
+        return
+
+    def _cap_ee(x: float) -> float:
+        return max(0.0, min(_RAW_SCORE_CAP_PER_LABEL, x))
+
+    # Informational questions (not "pure emotion")
+    if re.search(
+        r"(?i)^(do you (all )?know|have you heard|are you familiar|did you learn|can you (tell|explain)|"
+        r"what is|what are|what does|tell me about)\b",
+        tl,
+    ):
+        raw["Socio-emotional.emotional_expression"] = _cap_ee(raw.get("Socio-emotional.emotional_expression", 0.0) - 4.2)
+        raw["Cognitive.concept_exploration"] += 2.5
+    if "?" in tl and re.search(
+        r"(?i)\b(know|about|heard|familiar|bloom|taxonomy|concept|define|mean|what|which|why|how)\b",
+        tl,
+    ):
+        raw["Socio-emotional.emotional_expression"] = _cap_ee(raw.get("Socio-emotional.emotional_expression", 0.0) - 3.0)
+        raw["Cognitive.concept_exploration"] += 1.6
+    if re.search(r"(?i)\b(bloom|taxonomy)\b", tl) and "?" in tl:
+        raw["Socio-emotional.emotional_expression"] = _cap_ee(raw.get("Socio-emotional.emotional_expression", 0.0) - 4.5)
+        raw["Cognitive.concept_exploration"] += 2.2
+    # Conceptual unfamiliarity answer — still part of concept thread, not pure self-disclosure
+    if re.search(
+        r"(?i)\b(first time|never heard|not familiar|hearing about it)\b",
+        tl,
+    ) and re.search(r"(?i)\b(this|that|it|about)\b", tl):
+        raw["Socio-emotional.self_disclosure"] = _cap_ee(raw.get("Socio-emotional.self_disclosure", 0.0) - 2.5)
+        raw["Cognitive.concept_exploration"] += 2.0
+    # "I" + informational stance in discussion (weak affect cue — do not default to EE)
+    if re.search(r"\b(i think|i believe|i feel like|it seems)\b", tl) and re.search(
+        r"(?i)\b(teach|student|learn|process|goal|taxonomy|concept)\b",
+        tl,
+    ):
+        raw["Socio-emotional.emotional_expression"] = _cap_ee(raw.get("Socio-emotional.emotional_expression", 0.0) - 1.8)
+        raw["Cognitive.concept_exploration"] += 1.1
+
+
 def _semantic_proxy_scores(
     text: str,
     context: dict[str, Any] | None = None,
@@ -906,6 +952,8 @@ def _semantic_proxy_scores(
     if re.search(r"\bhhh\b", t):
         raw["Socio-emotional.emotional_expression"] += 1.6
 
+    _apply_informational_vs_socioemotional_bias(raw, t)
+
     if "?" in t:
         raw["Metacognitive.planning"] += 0.9
         if not _utterance_looks_like_bloom_task_solution_talk(t):
@@ -951,10 +999,17 @@ def _infer_label_from_prompt(
         any(x in stripped for x in ("haha", "lol", "哈哈", "😂", "hhh"))
         or re.fullmatch(r"h{3,}", stripped)
     ):
-        return "Socio-emotional.emotional_expression", [
-            "Socio-emotional.emotional_expression",
-            "Socio-emotional.encouragement",
-        ], scores
+        # Do not treat short *informational* questions as pure emotional expression.
+        if "?" in stripped and re.search(
+            r"(?i)\b(know|about|bloom|taxonomy|what|which|how)\b",
+            stripped,
+        ):
+            pass
+        else:
+            return "Socio-emotional.emotional_expression", [
+                "Socio-emotional.emotional_expression",
+                "Socio-emotional.encouragement",
+            ], scores
     if top <= 0.05:
         # No keyword hit: infer from coarse cues (still avoid concept_exploration as blanket default)
         if any(w in stripped for w in ("how ", "should we", "let's", "we can", "next ", "plan")):
@@ -2014,7 +2069,7 @@ Rules:
 - Boundary Critic must only challenge, not decide.
 - If Signal Extractor ambiguity says close top-two scores (or equivalent), Boundary Critic must output at least one challenge for that span (no empty challenges in this case).
 - Adjudicator must decide (accept_coder / accept_critic / combine / uncertain) and justify.
-- **Consistency checking (Adjudicator):** When **neighbor predicted labels** are provided in context (`neighbor_previous_predicted_label` / `neighbor_next_predicted_label`), reason about whether **Tier1 (event)** stays aligned across **interactive pairs** (ask/answer, give/agree, give/disagree, give/build on) with the adjacent turn. **Act (tier2)** is the reference for resolving event mismatches; consecutive interactive acts should share the same event. If a **Consistency retry** block appears above, follow it and output a revised full JSON.
+- **Consistency checking (Adjudicator):** When **neighbor predicted labels** are provided in context (`neighbor_previous_predicted_label` / `neighbor_next_predicted_label`), reason about whether **Tier1 (event)** stays aligned across **interactive pairs** (ask/answer, give/agree, give/disagree, give/build on) with the adjacent turn. **Act (tier2)** is the reference for resolving event mismatches; consecutive interactive acts should share the same event. Within **Cognitive**, if neighbors are both about the **same conceptual strand** (e.g. human `concept\\exploration-*`), do **not** flip **concept_exploration** → **solution_development** without task-solution cues (answers, options, labeling the response). **Socio-emotional.emotional_expression** is for **affect/reaction** only — **not** for informational questions (e.g. “Do you know about Bloom’s taxonomy?”) or conceptual discussion; those are **Cognitive** (usually **concept_exploration**). If a **Consistency retry** block appears above, follow it and output a revised full JSON.
 
 Golden-labels criteria excerpt:
 {golden}

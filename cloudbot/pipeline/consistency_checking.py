@@ -6,6 +6,12 @@ give/agree, give/disagree, give/build on) should share the same *event* (Tier1).
 Act (tier2) prediction is treated as more reliable than event; we align Tier1 when
 neighbors form an interactive pair but Tier1 differs.
 
+Within **Cognitive**, consecutive turns on the same conceptual thread should not
+flip **concept_exploration** ↔ **solution_development** without cause: when the
+previous turn is **concept_exploration** and the current line continues that
+strand (or HC `concept\\exploration-*`), we align the current label to
+**concept_exploration** rather than **solution_development**.
+
 See golden-labels.md and metacognitive-tier2-hc-subactions.md.
 """
 
@@ -122,6 +128,151 @@ def _pick_fallback_for_event(
     return None
 
 
+def _hc_implies_concept_exploration_strand(context: dict[str, Any] | None) -> bool:
+    """Human CSV `concept\\exploration-*` or concept/exploration-*."""
+    if not context:
+        return False
+    for key in ("HC1", "HC2", "hc1", "hc2", "gold_label", "label_gold"):
+        v = str(context.get(key) or "").lower().replace("\\", "/")
+        if "concept" in v and "exploration" in v:
+            return True
+    return False
+
+
+def _hc_implies_solution_development_strand(context: dict[str, Any] | None) -> bool:
+    if not context:
+        return False
+    for key in ("HC1", "HC2", "hc1", "hc2", "gold_label", "label_gold"):
+        v = str(context.get(key) or "").lower().replace("\\", "/")
+        if "solution" in v and "development" in v:
+            return True
+    return False
+
+
+def _strong_solution_development_cues(text: str) -> bool:
+    """Phrases that justify Cognitive.solution_development over concept_exploration."""
+    tl = (text or "").strip().lower()
+    return bool(
+        re.search(
+            r"(?i)\b(option|options|answer is|the answer|choose |pick |correct option|which one is|final answer|"
+            r"label (the |our |this )?response|naming and defining|for understanding i|differentiating and)\b",
+            tl,
+        )
+    )
+
+
+def _should_align_current_ce_over_sd(
+    current_text: str,
+    context: dict[str, Any] | None,
+) -> bool:
+    """
+    Previous neighbor is concept_exploration but current was mislabeled as solution_development:
+    align to CE when 上下文 / HC / discourse indicate the same conceptual strand.
+    """
+    if _hc_implies_concept_exploration_strand(context) and not _hc_implies_solution_development_strand(context):
+        return True
+    if _hc_implies_concept_exploration_strand(context) and _hc_implies_solution_development_strand(context):
+        return False
+    tl = (current_text or "").strip().lower()
+    if _strong_solution_development_cues(current_text):
+        return False
+    if re.search(
+        r"(?i)^\s*(do you (all )?know|have you heard|are you familiar|did you learn|what is|what are|what does|"
+        r"can you explain|tell me about|define |explain )\b",
+        tl,
+    ):
+        return True
+    if re.search(r"(?i)\b(bloom|taxonomy|metacognitive)\b", tl) and "?" in tl:
+        return True
+    if re.search(r"(?i)^(and |so |the goal |it seems|this (is|means)|right\?)", tl[:140]):
+        return True
+    if re.search(
+        r"(?i)\b(process of how|goal for teaching|teaching is|pedagog|students learn)\b",
+        tl,
+    ):
+        return True
+    return False
+
+
+def _mutate_output_to_label(
+    out: dict[str, Any],
+    new_label: str,
+    allowed_codes: list[str],
+    note: str,
+) -> None:
+    adj = out.setdefault("adjudicator", {})
+    finals = adj.get("final_labels")
+    if isinstance(finals, list) and finals and isinstance(finals[0], dict):
+        old = finals[0].get("label")
+        finals[0]["label"] = new_label
+        finals[0]["decision"] = "combine_both"
+        finals[0]["rationale"] = note + "\n\n" + str(finals[0].get("rationale") or "")
+    lc = out.get("label_coder") or {}
+    labs = lc.get("labels")
+    if isinstance(labs, list) and labs and isinstance(labs[0], dict):
+        labs[0]["label"] = new_label
+        labs[0]["rationale"] = (labs[0].get("rationale") or "") + (" | " + note if note else "")
+    _bump_scores_for_label(lc, new_label, allowed_codes)
+
+
+def _repair_cognitive_ce_vs_sd_if_needed(
+    out: dict[str, Any],
+    cleaned_prompt: str,
+    context: dict[str, Any] | None,
+    prev_predicted_label: str,
+    curr_predicted_label: str,
+    allowed_codes: list[str],
+    prev_prompt: str = "",
+) -> bool:
+    """
+    When previous turn is Cognitive.concept_exploration and current is Cognitive.solution_development
+    but the same conceptual thread continues, repair current to concept_exploration.
+    """
+    e1, a1 = parse_event_act(prev_predicted_label)
+    e2, a2 = parse_event_act(curr_predicted_label)
+    if e1 != "Cognitive" or e2 != "Cognitive":
+        return False
+    if a1 != "concept_exploration" or a2 != "solution_development":
+        return False
+    if not _should_align_current_ce_over_sd(cleaned_prompt, context):
+        return False
+    new_label = "Cognitive.concept_exploration"
+    note = (
+        "Consistency checking (Cognitive strand): previous turn is **concept_exploration**; "
+        "current line continues the same conceptual thread — align to **Cognitive.concept_exploration** "
+        "(not solution_development). See golden-labels CE vs SD."
+    )
+    _mutate_output_to_label(out, new_label, allowed_codes, note)
+    adj = out.setdefault("adjudicator", {})
+    adj["consistency_checking"] = {
+        "status": "repaired",
+        "pair_role": "previous_vs_current",
+        "phase": "cognitive_ce_sd_alignment",
+        "interactive_sequence": "same_conceptual_strand",
+        "event_mismatch": False,
+        "resolution": note,
+        "repaired_label": new_label,
+        "retry_required": False,
+        "current_code": {
+            "full": new_label,
+            "event": "Cognitive",
+            "act": "concept_exploration",
+        },
+        "neighbor_code": {
+            "full": prev_predicted_label,
+            "event": e1,
+            "act": a1,
+        },
+        "current_sentence_preview": (cleaned_prompt[:220] + "…") if len(cleaned_prompt) > 220 else cleaned_prompt,
+        "neighbor_sentence_preview": (
+            (prev_prompt[:220] + "…") if len(prev_prompt) > 220 else prev_prompt
+        )
+        if prev_prompt
+        else "—",
+    }
+    return True
+
+
 def _bump_scores_for_label(lc: dict[str, Any], new_label: str, allowed_codes: list[str]) -> None:
     """Force label_scores so ranked winner is new_label (same idea as golden HC repairs)."""
     raw = lc.get("label_scores")
@@ -206,14 +357,30 @@ def apply_consistency_checking(
         }
         return
 
-    # Prefer forward check (current vs next) when next label exists — matches paper screenshot.
+    # Phase A — same Cognitive tier1: align concept_exploration vs solution_development when 上下文 continues.
+    if prev_l:
+        if _repair_cognitive_ce_vs_sd_if_needed(
+            out, cleaned_prompt, ctx, prev_l, curr_l, allowed_codes, prev_prompt=prev_t
+        ):
+            return
+
+    curr_l = extract_primary_label_from_output(out)
+
+    # Phase B — cross-tier1 (event) alignment: prefer forward (current vs next) when both exist.
     use_forward = bool(next_l and next_t)
-    use_backward = bool(prev_l and prev_t) and not use_forward
+    use_backward = bool(prev_l) and not use_forward
+
+    if not prev_l and not next_l:
+        adj["consistency_checking"] = {
+            "status": "skipped",
+            "reason": "No neighbor predicted label in context (pass neighbor_previous_* / neighbor_next_* after batch or session state).",
+        }
+        return
 
     if not use_forward and not use_backward:
         adj["consistency_checking"] = {
             "status": "skipped",
-            "reason": "No neighbor predicted label in context (pass neighbor_previous_* / neighbor_next_* after batch or session state).",
+            "reason": "Neighbor labels present but missing prompts for pair check (pass neighbor_*_prompt).",
         }
         return
 
@@ -392,7 +559,8 @@ def format_consistency_markdown_block(cc: dict[str, Any]) -> str:
         "**Step 1 — Code framework:** Use taxonomy + golden-labels (event = Tier1, act = Tier2).",
         "**Step 2 — Current:** review `current_code` vs utterance.",
         "**Step 3 — Neighbor:** compare with adjacent turn in the same discussion.",
-        "**Step 4 — Alignment:** if events differ but acts form an interactive pair, align **event** using **act** as reference.",
+        "**Step 4 — Alignment:** if events differ but acts form an interactive pair, align **event** using **act** as reference. "
+        "Within **Cognitive**, keep **concept_exploration** vs **solution_development** stable across the same conceptual 上下文.",
         "",
         "```",
         f"{'':22}  Event (Tier1)   Act (Tier2)   Full code",

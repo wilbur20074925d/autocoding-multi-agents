@@ -6,8 +6,9 @@ Human labels often use **`strand\subaction`** or **`strand/subaction`** (e.g. `s
 
 - **`solution\development-*`** → canonical **`Cognitive.solution_development`**
 - **`concept\exploration-*`** → canonical **`Cognitive.concept_exploration`**
+- **`planning-*`** is **not** a Cognitive strand — map to **`Metacognitive.planning`** (see **metacognitive-tier2-hc-subactions.md**).
 
-Do **not** infer tier2 from the sub-action alone (e.g. “agree” is **not** enough—you need **solution** vs **concept** focus).
+Do **not** infer tier2 from the sub-action alone (e.g. “agree” is **not** enough—you need **solution** vs **concept** vs **planning** focus).
 
 ---
 

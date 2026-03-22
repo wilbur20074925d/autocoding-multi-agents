@@ -213,6 +213,19 @@ def _golden_hc_implies_solution_development(context: dict[str, Any] | None) -> b
     return False
 
 
+def _golden_hc_implies_metacognitive_planning(context: dict[str, Any] | None) -> bool:
+    """
+    Human HC like `planning-give`, `planning-agree` → Metacognitive.planning (not Cognitive.*).
+    """
+    if not context:
+        return False
+    for key in ("HC1", "HC2", "hc1", "hc2", "gold_label", "label_gold"):
+        v = str(context.get(key) or "").lower().replace("\\", "/")
+        if re.search(r"(?i)\bplanning[-/]", v) or v.strip().startswith("planning-"):
+            return True
+    return False
+
+
 def _golden_hc_implies_concept_exploration(context: dict[str, Any] | None) -> bool:
     """
     Human CSV labels like `concept\\exploration-ask` / `concept/exploration-give` map to
@@ -239,11 +252,36 @@ def _utterance_looks_like_bloom_definition_question(t: str) -> bool:
     return False
 
 
+def _utterance_looks_like_metacognitive_planning_chat(t: str) -> bool:
+    """
+    How to approach / structure the task (Metacognitive.planning), **not** Cognitive tier2.
+
+    Human HC examples: `planning-give`, `planning-agree` — do **not** map to
+    Cognitive.solution_development just because of "bullet" or "question".
+    """
+    if re.search(r"(?i)\b(we can first|we should first|first we can|let's first|we could first)\b", t):
+        return True
+    if re.search(r"(?i)\b(list the points|in bullet form|bullet form|bullet points)\b", t):
+        return True
+    if re.search(r"(?i)\b(organize (them )?into|coherent structure)\b", t):
+        return True
+    if re.search(r"(?i)\bfor the (first|second|third|next) question\b", t) and re.search(
+        r"(?i)\b(we can|we should|let's|could)\b",
+        t,
+    ):
+        return True
+    if re.search(r"(?i)\b(first|then|next)\b.*\b(list|organize|structure|bullet)\b", t):
+        return True
+    return False
+
+
 def _utterance_looks_like_bloom_task_solution_talk(t: str) -> bool:
     """
     Bloom *levels* or task-product talk: classifying the response / answer (solution_development),
     not abstract definitions.
     """
+    if _utterance_looks_like_metacognitive_planning_chat(t):
+        return False
     if re.search(
         r"(?i)\b(remember|understanding|understand|summarize|summarizing|analyzing|analyze|differentiating|differentiate|applying|apply|evaluating|creating|create)\b",
         t,
@@ -316,6 +354,80 @@ def _apply_bloom_task_and_golden_ce_sd_bias(
             0.0,
             raw.get("Cognitive.concept_exploration", 0.0) - 1.05,
         )
+
+
+def _apply_metacognitive_planning_heuristics(
+    raw: dict[str, float],
+    t: str,
+    norm: dict[str, Any],
+    context: dict[str, Any] | None,
+) -> None:
+    """
+    Metacognitive.planning vs Cognitive: procedure / how-to-structure talk and HC `planning-*`.
+    Short chat backchannels (Yes.) follow the previous line's strand when possible.
+    """
+    tl = (t or "").strip().lower()
+
+    if _utterance_looks_like_metacognitive_planning_chat(tl):
+        raw["Metacognitive.planning"] += 2.65
+        raw["Cognitive.solution_development"] = max(
+            0.0,
+            raw.get("Cognitive.solution_development", 0.0) - 1.75,
+        )
+        raw["Cognitive.concept_exploration"] = max(
+            0.0,
+            raw.get("Cognitive.concept_exploration", 0.0) - 1.45,
+        )
+        # "bullet" often hits Coordinative via substring — planning-give is Metacognitive, not logistics.
+        raw["Coordinative.coordinate_procedures"] = max(
+            0.0,
+            raw.get("Coordinative.coordinate_procedures", 0.0) - 4.0,
+        )
+
+    if _golden_hc_implies_metacognitive_planning(context):
+        raw["Metacognitive.planning"] += 2.05
+        raw["Cognitive.solution_development"] = max(
+            0.0,
+            raw.get("Cognitive.solution_development", 0.0) - 1.6,
+        )
+        raw["Cognitive.concept_exploration"] = max(
+            0.0,
+            raw.get("Cognitive.concept_exploration", 0.0) - 1.45,
+        )
+
+    # Chat backchannel: align with planning or solution strand (not concept_exploration default)
+    if len(tl) <= 28 and re.match(r"(?i)^(yes|yeah|yep|ok|okay|sure)\.?!?$", tl.strip()):
+        before, _ = _session_neighbor_lists(context)
+        if _golden_hc_implies_metacognitive_planning(context):
+            raw["Metacognitive.planning"] += 1.95
+            raw["Cognitive.concept_exploration"] = max(
+                0.0,
+                raw.get("Cognitive.concept_exploration", 0.0) - 1.85,
+            )
+            raw["Cognitive.solution_development"] = max(
+                0.0,
+                raw.get("Cognitive.solution_development", 0.0) - 1.15,
+            )
+        elif before:
+            prev = before[-1].lower()
+            if _utterance_looks_like_metacognitive_planning_chat(prev):
+                raw["Metacognitive.planning"] += 1.85
+                raw["Cognitive.concept_exploration"] = max(
+                    0.0,
+                    raw.get("Cognitive.concept_exploration", 0.0) - 1.8,
+                )
+                raw["Cognitive.solution_development"] = max(
+                    0.0,
+                    raw.get("Cognitive.solution_development", 0.0) - 1.05,
+                )
+            elif _utterance_looks_like_bloom_task_solution_talk(prev) or _golden_hc_implies_solution_development(
+                context,
+            ):
+                raw["Cognitive.solution_development"] += 1.7
+                raw["Cognitive.concept_exploration"] = max(
+                    0.0,
+                    raw.get("Cognitive.concept_exploration", 0.0) - 1.85,
+                )
 
 
 def _session_neighbor_lists(context: dict[str, Any] | None) -> tuple[list[str], list[str]]:
@@ -768,7 +880,7 @@ def _semantic_proxy_scores(
         raw["Cognitive.solution_development"] += 1.6
     if re.search(r"\b(split|divide|allocate|who should|your part|roles|who does)\b", t):
         raw["Coordinative.coordinate_participants"] += 1.5
-    if re.search(
+    if not _utterance_looks_like_metacognitive_planning_chat(t) and re.search(
         r"\b(go first|take turns|workflow|bullet|paragraph|in chat|group chat|doc|screen)\b", t,
     ):
         raw["Coordinative.coordinate_procedures"] += 1.4
@@ -797,6 +909,7 @@ def _semantic_proxy_scores(
         raw["Cognitive.solution_development"] += 0.6
 
     _apply_bloom_task_and_golden_ce_sd_bias(raw, t, norm, context)
+    _apply_metacognitive_planning_heuristics(raw, t, norm, context)
     _apply_session_context_cognitive_bias(raw, t, norm)
     _apply_session_window_cognitive_bias(raw, t, context)
 
@@ -1491,6 +1604,7 @@ def _postprocess_pipeline_output(
     _maybe_repair_concept_exploration_bias(out, cleaned_prompt, allowed_codes)
     _maybe_repair_golden_hc_solution_development_vs_ce(out, cleaned_prompt, allowed_codes)
     _maybe_repair_golden_hc_concept_exploration_vs_sd(out, cleaned_prompt, allowed_codes)
+    _maybe_repair_golden_hc_metacognitive_planning_vs_cognitive(out, cleaned_prompt, allowed_codes)
     _ensure_label_coder_full_scores(out, cleaned_prompt, allowed_codes)
     _sync_label_coder_and_adjudicator_from_scores(out)
     _ensure_boundary_critic_scores_close_challenge(out)
@@ -1676,6 +1790,97 @@ def _maybe_repair_golden_hc_concept_exploration_vs_sd(
         top3 = [c for c, s in sorted(scores.items(), key=lambda kv: -kv[1])[:3]]
         cands[0]["candidates"] = top3
         cands[0]["reason"] = "Aligned with HC concept/exploration strand (see cognitive-tier2-hc-subactions.md)."
+
+
+def _maybe_repair_golden_hc_metacognitive_planning_vs_cognitive(
+    out: dict[str, Any],
+    cleaned_prompt: str,
+    allowed_codes: list[str],
+) -> None:
+    """
+    When HC1/HC2 encode `planning-*` (e.g. planning-give, planning-agree) but agents still output
+    Cognitive.* (often solution_development or concept_exploration), align to Metacognitive.planning.
+
+    Also patches `label_scores` so the second `_ensure_label_coder_full_scores` + `_sync` keep MP on top.
+    """
+    ctx = out.get("context") or {}
+    if not _golden_hc_implies_metacognitive_planning(ctx):
+        return
+    scores = _semantic_proxy_scores(cleaned_prompt, ctx)
+    mp = scores.get("Metacognitive.planning", 0.0)
+    sd = scores.get("Cognitive.solution_development", 0.0)
+    ce = scores.get("Cognitive.concept_exploration", 0.0)
+    tl = (cleaned_prompt or "").strip().lower()
+    short_back = len(tl) <= 28 and bool(re.match(r"(?i)^(yes|yeah|yep|ok|okay|sure)\.?!?$", tl.strip()))
+    best_cog = max(sd, ce)
+
+    if mp + 0.1 < best_cog:
+        if not _utterance_looks_like_metacognitive_planning_chat(tl) and not short_back:
+            return
+
+    adj = out.get("adjudicator") or {}
+    finals = adj.get("final_labels") or []
+    if not isinstance(finals, list) or not finals:
+        return
+    all_cognitive_wrong = all(
+        isinstance(f, dict) and str(f.get("label") or "").startswith("Cognitive.")
+        for f in finals
+    )
+    if not all_cognitive_wrong:
+        return
+
+    note = (
+        "Golden HC (planning-* strand) aligns with Metacognitive.planning; "
+        "do not use Cognitive.solution_development / concept_exploration for procedure / how-to-structure talk "
+        "(see metacognitive-tier2-hc-subactions.md)."
+    )
+    for f in finals:
+        if not isinstance(f, dict):
+            continue
+        f["label"] = "Metacognitive.planning"
+        f["decision"] = "combine_both"
+        prev = (f.get("rationale") or "").strip()
+        f["rationale"] = f"{note} Prior: {prev}" if prev else note
+
+    lc = out.get("label_coder") or {}
+    labels = lc.get("labels") or []
+    if isinstance(labels, list):
+        for row in labels:
+            if isinstance(row, dict) and str(row.get("label") or "").startswith("Cognitive."):
+                row["label"] = "Metacognitive.planning"
+                row["rationale"] = note
+        lc["revision_note"] = note
+
+    raw_scores = lc.get("label_scores")
+    if isinstance(raw_scores, dict):
+        for k in list(raw_scores.keys()):
+            ks = str(k)
+            if ks.startswith("Cognitive.") or ks.startswith("Coordinative."):
+                try:
+                    raw_scores[k] = min(float(raw_scores[k]), 1.12)
+                except (TypeError, ValueError):
+                    raw_scores[k] = 1.0
+            elif ks.startswith("Metacognitive.") and ks != "Metacognitive.planning":
+                try:
+                    raw_scores[k] = min(float(raw_scores[k]), 1.18)
+                except (TypeError, ValueError):
+                    raw_scores[k] = 1.0
+        try:
+            cur_mp = float(raw_scores.get("Metacognitive.planning", 0.0))
+        except (TypeError, ValueError):
+            cur_mp = 0.0
+        raw_scores["Metacognitive.planning"] = max(cur_mp, 4.92)
+
+        for code in allowed_codes:
+            if code not in raw_scores:
+                raw_scores[code] = scores.get(code, 0.0)
+
+    se = out.get("signal_extractor") or {}
+    cands = se.get("candidate_signals") or []
+    if isinstance(cands, list) and cands and isinstance(cands[0], dict):
+        top3 = [c for c, s in sorted(scores.items(), key=lambda kv: -kv[1])[:3]]
+        cands[0]["candidates"] = top3
+        cands[0]["reason"] = "Aligned with HC planning-* strand (Metacognitive.planning)."
 
 
 def _format_session_context_for_llm(

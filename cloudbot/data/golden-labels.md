@@ -28,7 +28,7 @@ Use these criteria to **interpret and apply** labels consistently. All agents sh
 
 **Critical distinctions:**
 
-- **Cognitive vs Metacognitive:** If the utterance is about *the content* of the task (e.g. "what is Bloom's taxonomy?", "this answer is correct") → **Cognitive**. If it is about *how we’re doing the task* (e.g. "should we move on?", "are we on track?") → **Metacognitive**.
+- **Cognitive vs Metacognitive:** If the utterance is about *the content* of the task (e.g. "what is Bloom's taxonomy?", "this answer is correct") → **Cognitive**. If it is about *how we’re doing the task* (e.g. "should we move on?", "are we on track?", "**let’s list bullets first, then organize…**" for a question) → **Metacognitive** (**`Metacognitive.planning`**). Do **not** label pure procedure/structure talk as **`Cognitive.solution_development`** just because it mentions “question” or “bullet”.
 - **Coordinative vs Socio-emotional:** If it’s about *task structure* (who does what, how we run the session) → **Coordinative**. If it’s about *feelings, support, or belonging* → **Socio-emotional**.
 
 ### Tier 2 (sub-category) — precise use
@@ -42,11 +42,11 @@ Use these **precise objects of focus**:
 | Code | Focus | Typical questions / moves |
 |------|--------|---------------------------|
 | **`Cognitive.concept_exploration`** | **Concepts *of* the learning task** | What do ideas/terms **mean**? What is the theory or subject-matter content? (e.g. “What is Bloom’s taxonomy?”, “What does *metacognitive* mean in this course?”) |
-| **`Cognitive.solution_development`** | **Solutions *for* the learning task** | What is the **answer**, **option**, or **label** for *our* response? How do we **classify** or **justify** our work using those concepts? (e.g. Bloom levels applied to **their** answer, “naming and defining” the **chosen option**, bullet structure for a **question**). |
+| **`Cognitive.solution_development`** | **Solutions *for* the learning task** | What is the **answer**, **option**, or **label** for *our* response? How do we **classify** or **justify** our work using those concepts? (e.g. Bloom levels applied to **their** answer, “naming and defining” the **chosen option**). **Not** pure “how we’ll format or sequence the work” — that is **`Metacognitive.planning`** (see `planning-*` HC). |
 
 - **Whole-session rule:** When the **whole episode** (same group, time order) is mainly about **building or agreeing on the task solution**, treat short, ambiguous lines in that streak as **solution_development** unless they clearly ask for a **general definition**. When the episode is mainly about **understanding concepts/theory**, favor **concept_exploration**.
 - **`concept_exploration`:** Primary intent is to learn **what something means in general**—definitions, meanings of terms, theory (e.g. “What is Bloom’s taxonomy?”, “What does metacognitive mean here?”).
-- **`solution_development`:** Primary intent is to work on the **task product**—how to **label, classify, or justify the group’s answer** using course ideas (e.g. Bloom **levels** applied to *their* response: *remember / understanding / analyzing / …*, “naming and defining” the **option**, “for understanding I think it’s summarize”, “differentiating and proposing”, bullet structure for the **third question**). Human shorthand like `solution\development-*` (give / ask / agree / answer) refers to this **task-solution** strand, **not** abstract concept exploration.
+- **`solution_development`:** Primary intent is to work on the **task product**—how to **label, classify, or justify the group’s answer** using course ideas (e.g. Bloom **levels** applied to *their* response: *remember / understanding / analyzing / …*, “naming and defining” the **option**, “for understanding I think it’s summarize”, “differentiating and proposing”). If the move is mainly **procedural** (“first bullet the points, then organize into paragraphs” for a question), use **`Metacognitive.planning`** / HC **`planning-*`**, not `solution_development`. Human shorthand like `solution\development-*` (give / ask / agree / answer) refers to this **task-solution** strand, **not** abstract concept exploration.
 - **Do not** map every mention of “defining”, “Bloom”, or “understanding” to `concept_exploration`. If the talk is about **which Bloom level fits their work** or **what to call the answer**, that is **`solution_development`**.
 
 - **Metacognitive:** `planning` = plan procedures/goal setting; `monitoring` = check progress/next steps vs plan; `evaluating` = assess information quality and outcomes.
@@ -67,8 +67,9 @@ Human coding often uses **`strand\subaction`** (or `/`), e.g. `solution\developm
 |-------------------|-------------------------|
 | `solution\development-*` | **Cognitive.solution_development** |
 | `concept\exploration-*` | **Cognitive.concept_exploration** |
+| `planning-*` | **Metacognitive.planning** (procedure / how to structure the task — **not** cognitive tier2) |
 
-Full definitions: **cloudbot/data/cognitive-tier2-hc-subactions.md**. If HC1/HC2 conflict on strand, do not auto-resolve—use utterance + session evidence.
+Full definitions: **cloudbot/data/cognitive-tier2-hc-subactions.md** (Cognitive strands), **cloudbot/data/metacognitive-tier2-hc-subactions.md** (`planning-*`). If HC1/HC2 conflict on strand, do not auto-resolve—use utterance + session evidence.
 
 ---
 

@@ -256,50 +256,6 @@ def _utterance_looks_like_bloom_definition_question(t: str) -> bool:
     return False
 
 
-def _utterance_looks_like_bloom_level_category_enumeration(t: str) -> bool:
-    """
-    Listing verbs/behaviors for a Bloom *level* (e.g. “The **evaluate** category includes …”) —
-    **Cognitive.solution_development** (HC `solution\\development-give`), **not**
-    **Metacognitive.evaluating** (the word “evaluate” here names a taxonomy level, not “judge quality”).
-    """
-    tl = (t or "").strip().lower()
-    if re.search(
-        r"(?i)\b(the )?(remember|understand|apply|analyze|evaluate|create)\s+category includes\b",
-        tl,
-    ):
-        return True
-    if re.search(r"(?i)\b(the )?evaluate category\b", tl):
-        return True
-    if re.search(r"(?i)\bcategory includes\b", tl) and re.search(
-        r"(?i)\b(praise|argue|defend|judge|select|support|value|critique)\b",
-        tl,
-    ):
-        return True
-    return False
-
-
-def _utterance_looks_like_metacognitive_monitoring_next_step(t: str) -> bool:
-    """
-    Progress / next-part moves (HC **`monitoring-give`**) — remaining questions, showing the next task.
-    **Metacognitive.monitoring**, not **Metacognitive.evaluating** or **Cognitive.concept_exploration**.
-    """
-    tl = (t or "").strip().lower()
-    if re.search(
-        r"(?i)\b(we have one more question|have one more question|one more question|"
-        r"just one more question|there's one more question|there is one more question)\b",
-        tl,
-    ):
-        return True
-    if re.search(
-        r"(?i)\b(i can show you|i'll show you|let me show you|i will show you)\b",
-        tl,
-    ) and re.search(r"(?i)\b(task|question|part|section)\b", tl):
-        return True
-    if re.search(r"(?i)\b(show you task|next task|task one|task two|task three|next part|next section)\b", tl):
-        return True
-    return False
-
-
 def _utterance_looks_like_metacognitive_evaluating(t: str) -> bool:
     """
     Judging **quality, adequacy, or fit** of outputs, explanations, or tool results —
@@ -310,9 +266,6 @@ def _utterance_looks_like_metacognitive_evaluating(t: str) -> bool:
     """
     tl = (t or "").strip().lower()
     if not tl:
-        return False
-    # Bloom level *name* + listing behaviors — solution strand, not Meta.evaluating
-    if _utterance_looks_like_bloom_level_category_enumeration(t):
         return False
     # Definitional / theory questions → concept_exploration (do not treat as evaluating)
     if re.search(
@@ -461,37 +414,60 @@ def _apply_metacognitive_evaluating_bias(raw: dict[str, float], t: str) -> None:
     )
 
 
-def _apply_bloom_level_category_listing_solution_bias(raw: dict[str, float], t: str) -> None:
-    """Bloom level category listing → Cognitive.solution_development; demote Metacognitive.evaluating."""
-    if not _utterance_looks_like_bloom_level_category_enumeration(t):
+def _utterance_looks_like_good_question_encouragement(t: str) -> bool:
+    """Brief praise of someone’s question — Socio-emotional.encouragement (not cognitive tier2)."""
+    s = (t or "").strip()
+    if len(s) > 56:
+        return False
+    tl = s.lower()
+    return bool(
+        re.match(r"(?i)^(good question|great question|nice question)\s*\.?!?$", tl)
+        or re.match(r"(?i)^(that'?s a )?(good|great|nice) question\s*\.?!?$", tl)
+    )
+
+
+def _utterance_looks_like_monitoring_more_than_one_give(t: str) -> bool:
+    """
+    Metacomment that **multiple** answers/options may be valid — stays on **monitoring** thread
+    (HC monitoring-give), not labeling a single **solution** (Cognitive.solution_development).
+    """
+    tl = (t or "").strip().lower()
+    return bool(
+        re.search(r"(?i)^(there could be|there may be|there might be) more than one\b", tl)
+        or re.search(r"(?i)\bit could be more than one\b", tl)
+        or re.search(r"(?i)\bcould be more than one\b", tl)
+        or re.search(
+            r"(?i)\bmore than one (answer|option|correct|solution|way|choice)\b",
+            tl,
+        )
+    )
+
+
+def _apply_good_question_encouragement_bias(raw: dict[str, float], t: str) -> None:
+    if not _utterance_looks_like_good_question_encouragement(t):
         return
-    raw["Cognitive.solution_development"] += 3.6
-    raw["Metacognitive.evaluating"] = max(
+    raw["Socio-emotional.encouragement"] += 3.6
+    raw["Cognitive.solution_development"] = max(
         0.0,
-        raw.get("Metacognitive.evaluating", 0.0) - 4.2,
+        raw.get("Cognitive.solution_development", 0.0) - 3.0,
+    )
+    raw["Cognitive.concept_exploration"] = max(
+        0.0,
+        raw.get("Cognitive.concept_exploration", 0.0) - 2.2,
+    )
+
+
+def _apply_monitoring_more_than_one_bias(raw: dict[str, float], t: str) -> None:
+    if not _utterance_looks_like_monitoring_more_than_one_give(t):
+        return
+    raw["Metacognitive.monitoring"] += 3.45
+    raw["Cognitive.solution_development"] = max(
+        0.0,
+        raw.get("Cognitive.solution_development", 0.0) - 3.35,
     )
     raw["Cognitive.concept_exploration"] = max(
         0.0,
         raw.get("Cognitive.concept_exploration", 0.0) - 1.8,
-    )
-
-
-def _apply_metacognitive_monitoring_next_step_bias(raw: dict[str, float], t: str) -> None:
-    """Next question / show next task → Metacognitive.monitoring (monitoring-give)."""
-    if not _utterance_looks_like_metacognitive_monitoring_next_step(t):
-        return
-    raw["Metacognitive.monitoring"] += 3.55
-    raw["Metacognitive.evaluating"] = max(
-        0.0,
-        raw.get("Metacognitive.evaluating", 0.0) - 2.8,
-    )
-    raw["Cognitive.concept_exploration"] = max(
-        0.0,
-        raw.get("Cognitive.concept_exploration", 0.0) - 2.6,
-    )
-    raw["Cognitive.solution_development"] = max(
-        0.0,
-        raw.get("Cognitive.solution_development", 0.0) - 1.4,
     )
 
 
@@ -980,7 +956,7 @@ _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("Socio-emotional.encouragement", (
         "thank you", "thanks", "thank", "good job", "great job", "nice work",
         "well done", "keep going", "don't worry", "you got this", "cheer",
-        "appreciate", "grateful",
+        "appreciate", "grateful", "good question", "great question", "nice question",
     )),
     ("Socio-emotional.self_disclosure", (
         "i've ", "i have ", "i was ", "i'm not familiar", "i am not familiar",
@@ -1007,15 +983,11 @@ _LABEL_SCORE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     )),
     ("Metacognitive.monitoring", (
         "on the right track", "are we", "progress", "move on", "next question",
-        "one more question", "we have one", "show you task",
         "speed up", "behind schedule", "on track", "pace", "time left",
     )),
     ("Metacognitive.evaluating", (
         "lack detail", "lacks detail", "good enough", "make sense",
-        "is this ok", "is this correct",
-        # Do not use bare "evaluate" — matches "The evaluate category includes…" (Bloom level name).
-        "evaluate our", "evaluate the", "evaluate this", "evaluate whether",
-        "quality", "weak",
+        "is this ok", "is this correct", "evaluate", "quality", "weak",
         "strong enough", "gpt results", "does our", "think this",
     )),
     ("Cognitive.solution_development", (
@@ -1161,24 +1133,12 @@ def _semantic_proxy_scores(
         # Project-specific legacy mapping: planning-disagree => Metacognitive.planning
         raw["Metacognitive.planning"] += 2.1
     if re.search(
-        r"\b(on track|progress|next question|one more question|move on|pace|behind schedule|time left|are we)\b",
-        t,
+        r"\b(on track|progress|next question|move on|pace|behind schedule|time left|are we)\b", t,
     ):
         raw["Metacognitive.monitoring"] += 1.8
     if re.search(
-        r"\b(i can show you|i'll show you|let me show you)\b.*\b(task|question|part)\b",
-        t,
-    ) or re.search(r"\b(show you task|next task|task two|task one)\b", t):
-        raw["Metacognitive.monitoring"] += 2.0
-    # "evaluate" alone matches Bloom level labels ("evaluate category"); use Meta.evaluating only when not that
-    _eval_boost = re.search(
-        r"\b(quality|good enough|make sense|weak|strong enough|lack|detail|correct\?)\b",
-        t,
-    ) or (
-        re.search(r"\bevaluate\b", t)
-        and not _utterance_looks_like_bloom_level_category_enumeration(t)
-    )
-    if _eval_boost:
+        r"\b(quality|good enough|make sense|evaluate|weak|strong enough|lack|detail|correct\?)\b", t,
+    ):
         raw["Metacognitive.evaluating"] += 1.8
     # Generic conceptual cues — suppressed when the line is clearly Bloom/task-solution talk (see below).
     if not (
@@ -1237,9 +1197,9 @@ def _semantic_proxy_scores(
     # Late passes: disambiguate taxonomy expository vs Bloom-level task coding; group workflow vs cognitive
     _apply_taxonomy_concept_exploration_bias(raw, t)
     _apply_coordinative_procedure_role_bias(raw, t)
-    _apply_bloom_level_category_listing_solution_bias(raw, t)
     _apply_metacognitive_evaluating_bias(raw, t)
-    _apply_metacognitive_monitoring_next_step_bias(raw, t)
+    _apply_good_question_encouragement_bias(raw, t)
+    _apply_monitoring_more_than_one_bias(raw, t)
 
     mx = max(raw.values())
     if mx <= 0:
@@ -2337,8 +2297,7 @@ Rules:
 - **Coordinative vs Cognitive:** Group **logistics / workflow** — who **takes notes**, who **reads aloud** from a website/source, “only one person” + what others do — is **Coordinative.coordinate_procedures** (or coordinate_participants), **not** `Cognitive.solution_development` unless the line is really about **answers, options, or labeling the group’s response**.
 - **Concept exploration vs Socio-emotional:** A line that starts with **“I have four questions…”** (or similar) but mainly delivers **Bloom/taxonomy subject matter** (original vs revised taxonomy, level names like remember/knowledge, what the unit focuses on) is **`Cognitive.concept_exploration`**, not **`Socio-emotional.self_disclosure`** — the “I have…” is **pedagogical framing**, not personal intimacy.
 - **Concept exploration vs Metacognitive.evaluating:** **`Cognitive.concept_exploration`** = asking or stating **what** subject matter **means** (definitions, theory, contrasts of ideas). **`Metacognitive.evaluating`** (HC **`evaluating-ask`** / **`evaluating-give`**) = judging **quality, adequacy, or correctness** of outputs, explanations, or tool/GPT results (e.g. “Do the GPT results have enough detail?”, “GPT results lack detail.”). **Do not** label **quality-assessment** questions as **`concept_exploration`** just because they mention Bloom or taxonomy.
-- **Bloom level name vs Metacognitive.evaluating:** “The **evaluate** category includes …” uses **Evaluate** as a **Bloom taxonomy level** — code **`Cognitive.solution_development`** (HC **`solution\\development-give`**), **not** **`Metacognitive.evaluating`** (do not confuse the **word** evaluate with **judging** quality).
-- **Monitoring vs evaluating vs cognitive:** “**We have one more question.**” / “**I can show you task two.**” = **progress / next part** (**`monitoring-give`**) → **`Metacognitive.monitoring`**, not **`Metacognitive.evaluating`** and not **`Cognitive.concept_exploration`** unless the line is mainly definitional subject matter.
+- **Monitoring vs encouragement vs solution:** After a **Metacognitive.monitoring** ask (e.g. “Analyzing?”), **“Good question.”** is **Socio-emotional.encouragement** (praise), not monitoring. **“There could be more than one.”** in that thread is **Metacognitive.monitoring** (**monitoring-give** — multiple valid answers), not **Cognitive.solution_development**.
 - **Cognitive tier2 with 上下文:** When session tags (e.g. group id, no-gai/gai, discussion) suggest **collaborative task talk**, terse lines like *Naming and defining.* usually mean **naming/labeling the solution or answer** → **Cognitive.solution_development**, not abstract concept exploration.
 - **Cognitive tier2 — whole-session focus:** Decide **Cognitive.concept_exploration** vs **Cognitive.solution_development** using the **entire session window** (neighboring prompts + current) when provided. **concept_exploration** = primary focus on **concepts of the learning task** (what ideas/terms mean). **solution_development** = primary focus on **solutions for the learning task** (task products, answers, options). Do **not** label from a single ambiguous word if the **whole episode** is clearly about solutions vs concepts.
 - **Human HC shorthand:** Strand prefix disambiguates parallel sub-actions: **`solution\\development-*`** → **Cognitive.solution_development**; **`concept\\exploration-*`** → **Cognitive.concept_exploration** (same sub-action names, different focus—see **cloudbot/data/cognitive-tier2-hc-subactions.md**). If only `solution\\development-*` is present, do not use concept_exploration; if only `concept\\exploration-*`, do not use solution_development unless session evidence clearly contradicts HC.

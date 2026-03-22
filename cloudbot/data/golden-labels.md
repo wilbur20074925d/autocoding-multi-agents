@@ -118,12 +118,11 @@ Apply in order when in doubt:
 | "The answer should be the last one." | Cognitive.solution_development | Not Metacognitive.evaluating (unless it is explicitly judging output quality) |
 | "We can first search for the answer." | Metacognitive.planning | Not Coordinative.coordinate_procedures (unless it’s about logistics/turn-taking) |
 | "We can move to the next question." | Metacognitive.monitoring | Not Coordinative.coordinate_procedures |
-| "We have one more question." (`monitoring-give`) | Metacognitive.monitoring | Not **Metacognitive.evaluating** |
-| "I can show you task two." (`monitoring-give`) | Metacognitive.monitoring | Not **Cognitive.concept_exploration** |
-| "The evaluate category includes praise, argue, defend, …" (listing Bloom *level* content) | Cognitive.solution_development (`solution\development-give`) | Not **Metacognitive.evaluating** — “evaluate” names the **taxonomy level**, not judging output quality |
 | "GPT results lack detail." | Metacognitive.evaluating | Not Cognitive.solution_development |
 | "Do the GPT results have enough detail?" (`evaluating-ask`) | Metacognitive.evaluating | Not **Cognitive.concept_exploration** (not a definitional question) |
 | "What is Bloom's taxonomy?" (`concept\exploration-ask`) | Cognitive.concept_exploration | Not **Metacognitive.evaluating** (asks meaning/theory, not output quality) |
+| Prior: **monitoring-ask** (e.g. “Analyzing?”) → **“Good question.”** | Socio-emotional.encouragement | Not **Metacognitive.monitoring** (praise for the peer’s question, not progress content) |
+| Prior: **monitoring-ask** → **“There could be more than one.”** | Metacognitive.monitoring (`monitoring-give`) | Not **Cognitive.solution_development** (plural validity / metacomment, not picking one answer) |
 | "We can divide the task into three parts." | Coordinative.coordinate_participants | Not Metacognitive.planning |
 | "You go first." | Coordinative.coordinate_procedures | Not Socio-emotional.encouragement |
 | "That’s hilarious!" | Socio-emotional.emotional_expression | Not Cognitive |
@@ -180,8 +179,10 @@ Use these as the **default reference examples** for consistent human coding and 
   - "Are we on the right track?"
   - "How much progress have we made?"
   - "Do we need to speed up?"
+  - After a **monitoring-ask** (e.g. a level prompt like “Analyzing?”): **“There could be more than one.”** — **monitoring-give** (notes multiple valid answers / options; same metacognitive **monitoring** thread).
 - **Near-miss**
   - "Do you think this solution is ok?" → Metacognitive.evaluating
+  - After **monitoring-ask**: **“Good question.”** → **Socio-emotional.encouragement** (praise), not monitoring
 
 ### Metacognitive.evaluating
 
@@ -230,6 +231,7 @@ Use these as the **default reference examples** for consistent human coding and 
   - "Good job."
   - "Don't worry, we can do it."
   - "Nice idea—keep going."
+  - **“Good question.”** / **“Great question.”** — affirms the peer’s question (often after a **monitoring-ask** or other prompt); **not** cognitive content.
 - **Near-miss**
   - "Yes, because..." → Usually Cognitive.* or Metacognitive.* (not encouragement)
   - "It's okay." → Metacognitive.planning (legacy planning-agree)

@@ -588,6 +588,146 @@ def _repair_metacognitive_monitoring_vs_planning_if_needed(
     return True
 
 
+def _cc_looks_like_good_question_praise(text: str) -> bool:
+    """Praise for a peer’s question — aligns with Socio-emotional.encouragement (keep in sync with run_pipeline)."""
+    s = (text or "").strip()
+    if len(s) > 56:
+        return False
+    tl = s.lower()
+    return bool(
+        re.match(r"(?i)^(good question|great question|nice question)\s*\.?!?$", tl)
+        or re.match(r"(?i)^(that'?s a )?(good|great|nice) question\s*\.?!?$", tl)
+    )
+
+
+def _cc_looks_like_monitoring_more_than_one_give(text: str) -> bool:
+    """Plural-validity metacomment — monitoring-give thread (keep in sync with run_pipeline)."""
+    tl = (text or "").strip().lower()
+    return bool(
+        re.search(r"(?i)^(there could be|there may be|there might be) more than one\b", tl)
+        or re.search(r"(?i)\bit could be more than one\b", tl)
+        or re.search(r"(?i)\bcould be more than one\b", tl)
+        or re.search(
+            r"(?i)\bmore than one (answer|option|correct|solution|way|choice)\b",
+            tl,
+        )
+    )
+
+
+def _repair_good_question_encouragement_after_monitoring_if_needed(
+    out: dict[str, Any],
+    cleaned_prompt: str,
+    _context: dict[str, Any] | None,
+    prev_predicted_label: str,
+    curr_predicted_label: str,
+    allowed_codes: list[str],
+    prev_prompt: str = "",
+) -> bool:
+    """
+    Previous turn is Metacognitive.monitoring (e.g. monitoring-ask: “Analyzing?”); current is
+    **Good question.** — praise / encouragement, **not** cognitive content and not inheriting monitoring tier2.
+    """
+    e1, a1 = parse_event_act(prev_predicted_label)
+    if e1 != "Metacognitive" or a1 != "monitoring":
+        return False
+    if not _cc_looks_like_good_question_praise(cleaned_prompt):
+        return False
+    if curr_predicted_label == "Socio-emotional.encouragement":
+        return False
+    new_label = "Socio-emotional.encouragement"
+    note = (
+        "Consistency checking: previous turn is **Metacognitive.monitoring** (e.g. monitoring-ask); "
+        "current line praises the peer’s question (**Good question.**) → **Socio-emotional.encouragement**, "
+        "not Cognitive tier2."
+    )
+    _mutate_output_to_label(out, new_label, allowed_codes, note)
+    adj = out.setdefault("adjudicator", {})
+    adj["consistency_checking"] = {
+        "status": "repaired",
+        "pair_role": "previous_vs_current",
+        "phase": "good_question_after_monitoring_encouragement",
+        "interactive_sequence": "monitoring_ask_question_praise",
+        "event_mismatch": True,
+        "resolution": note,
+        "repaired_label": new_label,
+        "retry_required": False,
+        "current_code": {
+            "full": new_label,
+            "event": "Socio-emotional",
+            "act": "encouragement",
+        },
+        "neighbor_code": {
+            "full": prev_predicted_label,
+            "event": e1,
+            "act": a1,
+        },
+        "current_sentence_preview": (cleaned_prompt[:220] + "…") if len(cleaned_prompt) > 220 else cleaned_prompt,
+        "neighbor_sentence_preview": (
+            (prev_prompt[:220] + "…") if len(prev_prompt) > 220 else prev_prompt
+        )
+        if prev_prompt
+        else "—",
+    }
+    return True
+
+
+def _repair_monitoring_more_than_one_give_if_needed(
+    out: dict[str, Any],
+    cleaned_prompt: str,
+    _context: dict[str, Any] | None,
+    prev_predicted_label: str,
+    curr_predicted_label: str,
+    allowed_codes: list[str],
+    prev_prompt: str = "",
+) -> bool:
+    """
+    Previous turn is Metacognitive.monitoring; current line notes multiple valid answers — **monitoring-give**,
+    not **Cognitive.solution_development** (single-solution labeling).
+    """
+    e1, a1 = parse_event_act(prev_predicted_label)
+    if e1 != "Metacognitive" or a1 != "monitoring":
+        return False
+    if not _cc_looks_like_monitoring_more_than_one_give(cleaned_prompt):
+        return False
+    if curr_predicted_label == "Metacognitive.monitoring":
+        return False
+    new_label = "Metacognitive.monitoring"
+    note = (
+        "Consistency checking: previous turn is **Metacognitive.monitoring**; "
+        "current line (**there could be more than one**) continues the **monitoring** thread (HC **monitoring-give**), "
+        "not **Cognitive.solution_development**."
+    )
+    _mutate_output_to_label(out, new_label, allowed_codes, note)
+    adj = out.setdefault("adjudicator", {})
+    adj["consistency_checking"] = {
+        "status": "repaired",
+        "pair_role": "previous_vs_current",
+        "phase": "monitoring_more_than_one_give",
+        "interactive_sequence": "monitoring_thread_plural_validity",
+        "event_mismatch": parse_event_act(curr_predicted_label)[0] != "Metacognitive",
+        "resolution": note,
+        "repaired_label": new_label,
+        "retry_required": False,
+        "current_code": {
+            "full": new_label,
+            "event": "Metacognitive",
+            "act": "monitoring",
+        },
+        "neighbor_code": {
+            "full": prev_predicted_label,
+            "event": e1,
+            "act": a1,
+        },
+        "current_sentence_preview": (cleaned_prompt[:220] + "…") if len(cleaned_prompt) > 220 else cleaned_prompt,
+        "neighbor_sentence_preview": (
+            (prev_prompt[:220] + "…") if len(prev_prompt) > 220 else prev_prompt
+        )
+        if prev_prompt
+        else "—",
+    }
+    return True
+
+
 def _repair_dependent_reply_same_strand_if_needed(
     out: dict[str, Any],
     cleaned_prompt: str,
@@ -778,6 +918,24 @@ def apply_consistency_checking(
     # Phase A2 — same Metacognitive tier1: align monitoring vs planning (ask about next step → assent).
     if prev_l:
         if _repair_metacognitive_monitoring_vs_planning_if_needed(
+            out, cleaned_prompt, ctx, prev_l, curr_l, allowed_codes, prev_prompt=prev_t
+        ):
+            return
+
+    curr_l = extract_primary_label_from_output(out)
+
+    # Phase A2b — monitoring-ask + "Good question." → Socio-emotional.encouragement (praise), not cognitive.
+    if prev_l:
+        if _repair_good_question_encouragement_after_monitoring_if_needed(
+            out, cleaned_prompt, ctx, prev_l, curr_l, allowed_codes, prev_prompt=prev_t
+        ):
+            return
+
+    curr_l = extract_primary_label_from_output(out)
+
+    # Phase A2c — monitoring thread + "There could be more than one." → Metacognitive.monitoring (give), not SD.
+    if prev_l:
+        if _repair_monitoring_more_than_one_give_if_needed(
             out, cleaned_prompt, ctx, prev_l, curr_l, allowed_codes, prev_prompt=prev_t
         ):
             return

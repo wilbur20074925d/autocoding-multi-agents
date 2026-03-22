@@ -475,6 +475,10 @@ def format_consistency_checking_discord(cc: dict[str, Any] | None) -> str:
     header_bits: list[str] = []
     if phase == "dependent_reply_same_strand":
         header_bits.append("**Rule:** dependent reply → same **Tier1 + Tier2** as previous turn")
+    elif phase == "good_question_after_monitoring_encouragement":
+        header_bits.append("**Rule:** monitoring-ask → **Good question.** = **encouragement** (praise)")
+    elif phase == "monitoring_more_than_one_give":
+        header_bits.append("**Rule:** monitoring thread → **more than one** = **monitoring** (give)")
     elif phase in ("cognitive_ce_sd_alignment", "metacognitive_monitoring_planning_alignment"):
         header_bits.append("**Rule:** within-tier strand repair")
     if rk:

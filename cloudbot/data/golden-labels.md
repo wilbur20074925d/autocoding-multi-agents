@@ -34,6 +34,21 @@ Use these criteria to **interpret and apply** labels consistently. All agents sh
 ### Tier 2 (sub-category) — precise use
 
 - **Cognitive:** `concept_exploration` = discuss/clarify concepts; `solution_development` = discuss/clarify solutions/answers.
+
+#### `Cognitive.concept_exploration` vs `Cognitive.solution_development` (critical)
+
+Use these **precise objects of focus**:
+
+| Code | Focus | Typical questions / moves |
+|------|--------|---------------------------|
+| **`Cognitive.concept_exploration`** | **Concepts *of* the learning task** | What do ideas/terms **mean**? What is the theory or subject-matter content? (e.g. “What is Bloom’s taxonomy?”, “What does *metacognitive* mean in this course?”) |
+| **`Cognitive.solution_development`** | **Solutions *for* the learning task** | What is the **answer**, **option**, or **label** for *our* response? How do we **classify** or **justify** our work using those concepts? (e.g. Bloom levels applied to **their** answer, “naming and defining” the **chosen option**, bullet structure for a **question**). |
+
+- **Whole-session rule:** When the **whole episode** (same group, time order) is mainly about **building or agreeing on the task solution**, treat short, ambiguous lines in that streak as **solution_development** unless they clearly ask for a **general definition**. When the episode is mainly about **understanding concepts/theory**, favor **concept_exploration**.
+- **`concept_exploration`:** Primary intent is to learn **what something means in general**—definitions, meanings of terms, theory (e.g. “What is Bloom’s taxonomy?”, “What does metacognitive mean here?”).
+- **`solution_development`:** Primary intent is to work on the **task product**—how to **label, classify, or justify the group’s answer** using course ideas (e.g. Bloom **levels** applied to *their* response: *remember / understanding / analyzing / …*, “naming and defining” the **option**, “for understanding I think it’s summarize”, “differentiating and proposing”, bullet structure for the **third question**). Human shorthand like `solution\development-*` (give / ask / agree / answer) refers to this **task-solution** strand, **not** abstract concept exploration.
+- **Do not** map every mention of “defining”, “Bloom”, or “understanding” to `concept_exploration`. If the talk is about **which Bloom level fits their work** or **what to call the answer**, that is **`solution_development`**.
+
 - **Metacognitive:** `planning` = plan procedures/goal setting; `monitoring` = check progress/next steps vs plan; `evaluating` = assess information quality and outcomes.
 - **Coordinative:** `coordinate_participants` = allocate tasks/roles; `coordinate_procedures` = manage workflow/turn-taking/technical logistics.
 - **Socio-emotional:** `emotional_expression` = feelings/reactions; `encouragement` = praise/cheer; `self_disclosure` = personal experience/unfamiliarity.
@@ -43,6 +58,17 @@ Use these criteria to **interpret and apply** labels consistently. All agents sh
 - **Canonical form (latest):** `Tier1.tier2` (e.g. `Cognitive.concept_exploration`, `Metacognitive.monitoring`).
 - **Backward compatibility:** If a prediction includes a third segment (e.g. `Cognitive.concept_exploration.ask`), evaluation should still match a golden `Cognitive.concept_exploration` (tier3 is ignored when gold is tier2-only).
 - **From training CSV:** Human coders may use shorthand. Map to canonical form using **label-taxonomy.csv** as the single list of valid codes (see mapping table below).
+
+#### Human HC sub-actions (parallel tables)
+
+Human coding often uses **`strand\subaction`** (or `/`), e.g. `solution\development-ask` vs `concept\exploration-ask`. The **same sub-action** (ask, answer, agree, disagree, give, build on) appears in **both** strands; **tier2 is encoded by the strand**, not by the verb alone:
+
+| Human strand (HC) | Canonical `Tier1.tier2` |
+|-------------------|-------------------------|
+| `solution\development-*` | **Cognitive.solution_development** |
+| `concept\exploration-*` | **Cognitive.concept_exploration** |
+
+Full definitions: **cloudbot/data/cognitive-tier2-hc-subactions.md**. If HC1/HC2 conflict on strand, do not auto-resolve—use utterance + session evidence.
 
 ---
 
@@ -54,7 +80,7 @@ When **metadata** is provided (e.g. from CSV or Discord: `group`, `people`, `tim
 - **Cognitive.solution_development vs Cognitive.concept_exploration:** If the episode is clearly about **doing the task together** (options, final answer, what to call the response) → favor **solution_development**. Reserve **concept_exploration** for talk whose **primary intent** is to clarify **meanings, definitions, or theory** (what a term *means* in general), not to label the group’s chosen answer.
 - **Multi-party cues:** `people` ≥ 2, or tags implying **pair/group work**, **discussion**, or **session segment**, increase the chance that terse cognitive cues are **task-product** oriented.
 - **Still ground in the prompt text:** 上下文 adjusts interpretation; it does not replace the need for at least one evidence span that fits the label.
-- **Session window (neighboring prompts):** When the runtime provides **other utterances from the same group** in **time order** (prompts *before* / *after* the current line), use them to infer **what the episode is mainly doing**—especially to separate **`Cognitive.solution_development`** (task product, answers, options) from **`Cognitive.concept_exploration`** (meanings, definitions, theory). A single ambiguous line should **follow the lean of the window** when evidence alone is thin; the window is a **tie-breaker**, not a replacement for span-level fit.
+- **Session window (neighboring prompts):** When the runtime provides **other utterances from the same group** in **time order** (prompts *before* / *after* the current line), infer the **whole session’s semantic focus**: is the group mainly working on **solutions for the learning task** or on **concepts of the learning task**? Use that to separate **`Cognitive.solution_development`** from **`Cognitive.concept_exploration`**. A single ambiguous line should **follow the dominant focus of the window** when the line alone is thin; neighbors are a **tie-breaker** for tier2, not a replacement for verbatim evidence on the current line.
 - **Discord “session” definition:** In **Label this prompt** mode, neighbors come from the **latest contiguous streak** in the same Discord channel with the same **`group`** (optional header line), in **send order**. If another `group` appears in between, the streak **breaks**: earlier same-group lines are **not** neighbors for the new streak (e.g. `G1,G1,G2,G1` → labeling the last `G1` only sees the single previous `G1`, not the two before `G2`). History is in-memory; restart clears it. Omitting `group:` still uses one streak (empty group key).
 
 ---
@@ -76,6 +102,9 @@ Apply in order when in doubt:
 | Utterance / situation | Correct direction | Common error to avoid |
 |------------------------|-------------------|------------------------|
 | "What is Bloom's taxonomy?" | Cognitive.concept_exploration | Not Metacognitive.planning |
+| "For understanding, I think it's summarize." (classifying the response) | Cognitive.solution_development | Not concept_exploration |
+| "For analyzing, it could be differentiating and proposing." | Cognitive.solution_development | Not concept_exploration |
+| "Yeah, yeah." (backchannel in joint task talk) | Often **not** Cognitive alone—see socio/metacognitive; if forced cognitive, lean **solution_development** when HC marks `solution\development-agree` | Not default concept_exploration |
 | "The answer should be the last one." | Cognitive.solution_development | Not Metacognitive.evaluating (unless it is explicitly judging output quality) |
 | "We can first search for the answer." | Metacognitive.planning | Not Coordinative.coordinate_procedures (unless it’s about logistics/turn-taking) |
 | "We can move to the next question." | Metacognitive.monitoring | Not Coordinative.coordinate_procedures |

@@ -20,6 +20,8 @@ Second agent in the pipeline. You take the **original prompt** and **extracted e
 - **Signal Extractor output**: evidence spans, candidate signals, ambiguity flags
 - **Golden label** (when provided): primary target; justify from evidence.
 - **Context metadata (上下文)** (when available): **group**, **timestamp-mm**, **people**, **context** / condition tags—use for **all** tier1/tier2 decisions when the prompt is short or ambiguous. In a **communication / study episode**, fragments like *Naming and defining.* often mean **naming the task answer** → **`Cognitive.solution_development`**, not `Cognitive.concept_exploration`. See **golden-labels.md** → “Session context (上下文)”.
+- **HC1/HC2 human shorthand (parallel strands):** **`solution\development-*`** (ask, answer, agree, give, build on, …) → **`Cognitive.solution_development`**. **`concept\exploration-*`** (same sub-action names) → **`Cognitive.concept_exploration`**. The **strand prefix** encodes the focus (solutions *for* the task vs concepts *of* the task), not the sub-action verb alone. See **cloudbot/data/cognitive-tier2-hc-subactions.md** and **golden-labels.md**.
+- **Whole-session semantic focus (Cognitive tier2):** **`Cognitive.concept_exploration`** = **concepts *of* the learning task** (meanings, theory). **`Cognitive.solution_development`** = **solutions *for* the learning task** (answers, options, how to label/classify the response). When neighbors + current are provided, **infer the dominant focus of the episode** and use it to disambiguate ambiguous lines—do not decide from a single word in isolation.
 
 ## Outputs (to Boundary Critic, then Adjudicator)
 

@@ -64,13 +64,29 @@ def format_session_overview_discord(overview: dict[str, Any] | None) -> str:
 
     tilt = str(overview.get("cognitive_tilt") or "neutral")
     nb = overview.get("neighbor_counts") or {}
+    sf = str(overview.get("semantic_focus") or "")
+    sf_hint = ""
+    if sf == "learning_task_solutions":
+        sf_hint = "**Whole-session focus:** **solutions for the learning task** (answers, options, classifying the response) — prefer **Cognitive.solution_development** when the current line is ambiguous."
+    elif sf == "learning_task_concepts":
+        sf_hint = "**Whole-session focus:** **concepts of the learning task** (meanings, theory) — prefer **Cognitive.concept_exploration** when the current line is ambiguous."
     lines: list[str] = [
         f"**Cognitive activity focus (heuristic):** `{tilt}`",
-        "",
-        str(overview.get("summary_line") or ""),
-        "",
-        f"**Utterances in window:** ⬆️ before **{nb.get('before', 0)}** · 📍 current **1** · ⬇️ after **{nb.get('after', 0)}**",
     ]
+    if sf_hint:
+        lines.extend(["", sf_hint])
+    lines.extend(
+        [
+            "",
+            str(overview.get("summary_line") or ""),
+            "",
+            f"**Utterances in window:** ⬆️ before **{nb.get('before', 0)}** · 📍 current **1** · ⬇️ after **{nb.get('after', 0)}**",
+        ]
+    )
+    th = overview.get("task_cue_hits")
+    dh = overview.get("def_cue_hits")
+    if th is not None and dh is not None:
+        lines.append(f"**Cue counts (task-solution vs definition-style):** {th} vs {dh}")
 
     agg = overview.get("aggregate_preview") or {}
     if agg:
@@ -81,7 +97,7 @@ def format_session_overview_discord(overview: dict[str, Any] | None) -> str:
         [
             "",
             "**Per-utterance top label** (semantic proxy, orientation only — **not** final taxonomy decision)",
-            "_Scores are calibrated on 0–5: neighboring lines are **one** input among cues; values are **not** all 5.0._",
+            "_Scores are calibrated on 0–5. Use the **whole window** for CE vs SD: **concepts *of* the task** vs **solutions *for* the task**; per-line tops are orientation only._",
         ]
     )
     for row in overview.get("per_utterance_top") or []:

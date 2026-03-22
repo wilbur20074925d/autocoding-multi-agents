@@ -1,6 +1,6 @@
 tier1,tier2,tier3,description,example_utterance
-Cognitive,concept_exploration,,Discuss or clarify concepts related to learning tasks.,What is the bloom taxonomy?
-Cognitive,solution_development,,Discuss or clarify solutions for learning tasks.,The answer should be the last one.
+Cognitive,concept_exploration,,Concepts *of* the learning task: meanings definitions theory (what ideas denote).,What is the bloom taxonomy?
+Cognitive,solution_development,,Solutions *for* the learning task: answers options task products (how to complete or label the response).,The answer should be the last one.
 Metacognitive,planning,,Plan problem-solving procedures, including goal setting.,We can first search for the answer.
 Metacognitive,evaluating,,Assess information and task outcomes.,GPT results lack detail.
 Metacognitive,monitoring,,Evaluate task progress and ensure alignment with plans.,We can move to the next question.

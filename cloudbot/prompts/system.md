@@ -26,6 +26,8 @@ Adjudicator        → final arbitration; optionally trigger one retry to Critic
 - **Traceability**: Label Coder and Adjudicator outputs should be traceable back to evidence spans and to the original prompt.
 - **Socio-emotional calibration**: Text laughter (e.g. **"hhh"**, "hahaha", "LOL") → `Socio-emotional.emotional_expression`. Sharing personal background or identity relevant to rapport (e.g. **"I actually study developmental science, so I'm super aware."**) → `Socio-emotional.self_disclosure`, not `Cognitive.concept_exploration` unless the utterance is mainly about explaining task concepts.
 - **Session context (上下文):** When **group**, **people**, **timestamp**, or **scenario/condition** metadata is provided, treat it as part of the communication situation. Use it to disambiguate **short prompts** (e.g. *Naming and defining.* in a study/discussion row often targets **naming the answer** → `Cognitive.solution_development`, not generic `Cognitive.concept_exploration`). See **cloudbot/data/golden-labels.md** (“Session context”).
+- **Cognitive tier2 — whole session:** When neighboring prompts are provided, infer **whole-session semantic focus**. **`Cognitive.concept_exploration`** = **concepts *of* the learning task** (meanings, theory). **`Cognitive.solution_development`** = **solutions *for* the learning task** (answers, options, how to label the response). Prefer the tier2 that matches the **dominant focus of the window** when the current line is ambiguous.
+- **Human HC parallel strands:** `solution\\development-*` vs `concept\\exploration-*` share sub-actions (ask, agree, give, …); the **strand** selects tier2. See **cloudbot/data/cognitive-tier2-hc-subactions.md**.
 
 ## Agent Roles (summary)
 

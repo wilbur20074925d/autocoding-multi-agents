@@ -12,6 +12,10 @@ previous turn is **concept_exploration** and the current line continues that
 strand (or HC `concept\\exploration-*`), we align the current label to
 **concept_exploration** rather than **solution_development**.
 
+Within **Metacognitive**, when the previous turn is **monitoring** (next step /
+progress) and the current line is mislabeled **planning** though it only assents
+to that monitoring question, we align to **monitoring**.
+
 See golden-labels.md and metacognitive-tier2-hc-subactions.md.
 """
 
@@ -161,6 +165,104 @@ def _strong_solution_development_cues(text: str) -> bool:
     )
 
 
+def _hc_implies_monitoring_strand(context: dict[str, Any] | None) -> bool:
+    """Human CSV e.g. `monitoring-ask`, `monitoring/agree`, `monitoring-answer`."""
+    if not context:
+        return False
+    for key in ("HC1", "HC2", "hc1", "hc2", "gold_label", "label_gold"):
+        v = str(context.get(key) or "").lower().replace("\\", "/")
+        if re.search(r"(?i)\bmonitoring[-/]", v) or v.strip().startswith("monitoring-"):
+            return True
+    return False
+
+
+def _hc_implies_planning_strand(context: dict[str, Any] | None) -> bool:
+    """Human CSV `planning-*` → Metacognitive.planning."""
+    if not context:
+        return False
+    for key in ("HC1", "HC2", "hc1", "hc2", "gold_label", "label_gold"):
+        v = str(context.get(key) or "").lower().replace("\\", "/")
+        if re.search(r"(?i)\bplanning[-/]", v) or v.strip().startswith("planning-"):
+            return True
+    return False
+
+
+def _prev_prompt_suggests_monitoring_question(prev_prompt: str) -> bool:
+    """Prior turn asks about progress, next step, or moving on (monitoring), not procedure planning."""
+    pl = (prev_prompt or "").strip().lower()
+    if not pl:
+        return False
+    if re.search(
+        r"(?i)\b(move on|next question|next part|multiple[- ]choice|multiple choice|"
+        r"ready to|are we ready|should we|do you want to|want to go|want to move|"
+        r"continue (to|with)|skip to|time to|shall we|okay to|proceed to)\b",
+        pl,
+    ):
+        return True
+    if "?" in pl and re.search(
+        r"(?i)\b(on (the )?right track|pace|progress|finish|done yet|keep going|same page)\b",
+        pl,
+    ):
+        return True
+    return False
+
+
+def _current_looks_like_monitoring_assent(current_text: str) -> bool:
+    """Short agreement / okay to proceed — answers a monitoring question, not a new plan."""
+    t = (current_text or "").strip().lower()
+    if not t or len(t) > 120:
+        return False
+    if re.match(
+        r"(?i)^(yes|yeah|yep|ok|okay|sure|fine|good|sounds good|let's go|let us go)\s*\.?!?$",
+        t,
+    ):
+        return True
+    if re.search(r"(?i)\b(i think )?it'?s okay\b", t) and "?" not in t:
+        return True
+    if re.search(r"(?i)\b(i think (that |it )?)?(is |')?ok(ay)?\b", t) and len(t) < 90 and "?" not in t:
+        return True
+    if re.search(r"(?i)\b(that sounds|sounds )?(good|fine|okay)\b", t) and len(t) < 100:
+        return True
+    return False
+
+
+def _utterance_looks_like_planning_proposal(text: str) -> bool:
+    """Explicit procedure / structure proposal — do not recode as monitoring."""
+    tl = (text or "").strip().lower()
+    return bool(
+        re.search(
+            r"(?i)\b(we should first|we can first|let's first|first we|list the|in bullet|"
+            r"how should we solve|what steps|strategy|approach|procedure for)\b",
+            tl,
+        )
+    )
+
+
+def _should_align_monitoring_over_planning(
+    prev_prompt: str,
+    current_text: str,
+    context: dict[str, Any] | None,
+) -> bool:
+    """
+    Previous line was monitoring; current mislabeled as planning — align when 上下文 is
+    assent to progress/next-step, not a new plan.
+    """
+    if _utterance_looks_like_planning_proposal(current_text):
+        return False
+    if _hc_implies_monitoring_strand(context) and not _hc_implies_planning_strand(context):
+        return True
+    if _hc_implies_planning_strand(context) and not _hc_implies_monitoring_strand(context):
+        return False
+    if _hc_implies_planning_strand(context) and _hc_implies_monitoring_strand(context):
+        return bool(
+            _prev_prompt_suggests_monitoring_question(prev_prompt)
+            and _current_looks_like_monitoring_assent(current_text)
+        )
+    if _prev_prompt_suggests_monitoring_question(prev_prompt) and _current_looks_like_monitoring_assent(current_text):
+        return True
+    return False
+
+
 def _should_align_current_ce_over_sd(
     current_text: str,
     context: dict[str, Any] | None,
@@ -273,6 +375,64 @@ def _repair_cognitive_ce_vs_sd_if_needed(
     return True
 
 
+def _repair_metacognitive_monitoring_vs_planning_if_needed(
+    out: dict[str, Any],
+    cleaned_prompt: str,
+    context: dict[str, Any] | None,
+    prev_predicted_label: str,
+    curr_predicted_label: str,
+    allowed_codes: list[str],
+    prev_prompt: str = "",
+) -> bool:
+    """
+    Previous turn is Metacognitive.monitoring (e.g. move on? next section?); current mislabeled
+    as Metacognitive.planning though it assents / responds in the same monitoring thread.
+    """
+    e1, a1 = parse_event_act(prev_predicted_label)
+    e2, a2 = parse_event_act(curr_predicted_label)
+    if e1 != "Metacognitive" or e2 != "Metacognitive":
+        return False
+    if a1 != "monitoring" or a2 != "planning":
+        return False
+    if not _should_align_monitoring_over_planning(prev_prompt, cleaned_prompt, context):
+        return False
+    new_label = "Metacognitive.monitoring"
+    note = (
+        "Consistency checking (Metacognitive strand): previous turn is **monitoring** (progress / next step); "
+        "current line answers or assents in the same thread — align to **Metacognitive.monitoring** "
+        "(not planning). See golden-labels planning vs monitoring."
+    )
+    _mutate_output_to_label(out, new_label, allowed_codes, note)
+    adj = out.setdefault("adjudicator", {})
+    adj["consistency_checking"] = {
+        "status": "repaired",
+        "pair_role": "previous_vs_current",
+        "phase": "metacognitive_monitoring_planning_alignment",
+        "interactive_sequence": "monitoring_ask_assent",
+        "event_mismatch": False,
+        "resolution": note,
+        "repaired_label": new_label,
+        "retry_required": False,
+        "current_code": {
+            "full": new_label,
+            "event": "Metacognitive",
+            "act": "monitoring",
+        },
+        "neighbor_code": {
+            "full": prev_predicted_label,
+            "event": e1,
+            "act": a1,
+        },
+        "current_sentence_preview": (cleaned_prompt[:220] + "…") if len(cleaned_prompt) > 220 else cleaned_prompt,
+        "neighbor_sentence_preview": (
+            (prev_prompt[:220] + "…") if len(prev_prompt) > 220 else prev_prompt
+        )
+        if prev_prompt
+        else "—",
+    }
+    return True
+
+
 def _bump_scores_for_label(lc: dict[str, Any], new_label: str, allowed_codes: list[str]) -> None:
     """Force label_scores so ranked winner is new_label (same idea as golden HC repairs)."""
     raw = lc.get("label_scores")
@@ -360,6 +520,13 @@ def apply_consistency_checking(
     # Phase A — same Cognitive tier1: align concept_exploration vs solution_development when 上下文 continues.
     if prev_l:
         if _repair_cognitive_ce_vs_sd_if_needed(
+            out, cleaned_prompt, ctx, prev_l, curr_l, allowed_codes, prev_prompt=prev_t
+        ):
+            return
+
+    # Phase A2 — same Metacognitive tier1: align monitoring vs planning (ask about next step → assent).
+    if prev_l:
+        if _repair_metacognitive_monitoring_vs_planning_if_needed(
             out, cleaned_prompt, ctx, prev_l, curr_l, allowed_codes, prev_prompt=prev_t
         ):
             return
@@ -560,7 +727,8 @@ def format_consistency_markdown_block(cc: dict[str, Any]) -> str:
         "**Step 2 — Current:** review `current_code` vs utterance.",
         "**Step 3 — Neighbor:** compare with adjacent turn in the same discussion.",
         "**Step 4 — Alignment:** if events differ but acts form an interactive pair, align **event** using **act** as reference. "
-        "Within **Cognitive**, keep **concept_exploration** vs **solution_development** stable across the same conceptual 上下文.",
+        "Within **Cognitive**, keep **concept_exploration** vs **solution_development** stable; within **Metacognitive**, "
+        "keep **monitoring** vs **planning** stable when the reply assents to a progress/next-step question.",
         "",
         "```",
         f"{'':22}  Event (Tier1)   Act (Tier2)   Full code",

@@ -52,6 +52,7 @@ Use these **precise objects of focus**:
 - **Do not** map every mention of “defining”, “Bloom”, or “understanding” to `concept_exploration`. If the talk is about **which Bloom level fits their work** or **what to call the answer**, that is **`solution_development`**.
 
 - **Metacognitive:** `planning` = plan procedures/goal setting; `monitoring` = check progress/next steps vs plan; `evaluating` = assess information quality and outcomes.
+- **Planning vs monitoring (same 上下文):** A **monitoring** question (e.g. “Do you want to move on to the multiple-choice questions?”) followed by a short **okay / yes / I think it’s fine** is still **the same metacognitive strand** — code the follow-on as **`Metacognitive.monitoring`**, not **`Metacognitive.planning`**, unless the speaker clearly starts a **new** procedural plan (steps, bullets, “first we should…”). Human **`monitoring-*`** HC should align with **`Metacognitive.monitoring`** across ask/answer/agree pairs.
 - **Coordinative:** `coordinate_participants` = allocate tasks/roles; `coordinate_procedures` = manage workflow/turn-taking/technical logistics.
 - **Socio-emotional:** `emotional_expression` = feelings/reactions; `encouragement` = praise/cheer; `self_disclosure` = personal experience/unfamiliarity.
 

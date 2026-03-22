@@ -13,6 +13,8 @@ Final agent in the pipeline. You read **all prior outputs**, then decide the **f
 
 **Event** = Tier1 (Cognitive, Metacognitive, …); **act** = Tier2. Consecutive **interactive** turns (ask/answer, give/agree, give/disagree, give/build on) should stay in the **same event**. When **neighbor predicted labels** are provided in context (`neighbor_previous_predicted_label` / `neighbor_next_predicted_label`), use **act (tier2) as the reference** to fix **event** mismatches—the pipeline may auto-repair or request a **full-pipeline LLM retry** with a shared instruction to all four agents.
 
+**Same strand within Tier1:** (1) **Cognitive** — keep **concept_exploration** vs **solution_development** stable when the conceptual thread continues. (2) **Metacognitive** — a **monitoring** question (e.g. move on to the next part?) plus a short **assent** should stay **`Metacognitive.monitoring`**, not flip to **`planning`**, unless the reply proposes a new procedure.
+
 If a **Consistency retry** block appears in the session context, treat it as mandatory: re-analyze the current utterance for **Tier1/Tier2** alignment with the adjacent turn.
 
 ## Golden labels and training

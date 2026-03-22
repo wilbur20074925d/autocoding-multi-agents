@@ -17,11 +17,13 @@ progress) and the current line is mislabeled **planning** though it only assents
 to that monitoring question, we align to **monitoring**.
 
 When the **current** line is a **short assent/dissent** (“Sure”, “Yes”, “That
-sounds good”, “No”, …) or a **closure/status answer** to a prior eliciting turn
-(“I think we’re done.”, …), it continues the **same communicative strand** as
-the **previous** turn: **Tier1.tier2** should match the neighbor’s label. If the
-model disagrees, we **repair** to the previous code when it is taxonomy-valid;
-otherwise we request a **full-pipeline LLM retry**.
+sounds good”, “No”, …) — human HC often **`…-agree`** / **`…-disagree`** — or a
+**closure/status answer** (“I think we’re done.”, …), it continues the **same
+communicative strand** as the **previous** turn: **Tier1.tier2** (label + act /
+semilabel) should match **`neighbor_previous_predicted_label`** when that anchor
+is present (even if the prior prompt text alone is short or not caught by strict
+“elicitation” cues). If the model disagrees, we **repair** to the previous code
+when taxonomy-valid; otherwise we request a **full-pipeline LLM retry**.
 
 See golden-labels.md and metacognitive-tier2-hc-subactions.md.
 """
@@ -285,17 +287,43 @@ def _is_short_assent_or_negation(current_text: str) -> bool:
     return False
 
 
-def _classify_dependent_reply_to_previous(prev_prompt: str, current_text: str) -> str | None:
+def _classify_dependent_reply_to_previous(
+    prev_prompt: str,
+    current_text: str,
+    *,
+    has_neighbor_predicted_label: bool = False,
+) -> str | None:
     """
-    If the current line is plausibly a reply *to* the previous eliciting turn,
+    If the current line is plausibly a reply *to* the previous turn (same strand),
     return a short kind string; else None.
+
+    When **has_neighbor_predicted_label** is True (batch/Discord context), a very short
+    assent/dissent (e.g. “Sure”, “Yes”) is treated as **HC-style agree/disagree** to the
+    prior line: inherit **Tier1.tier2** from the neighbor label even if the prior text
+    alone fails strict “elicitation” heuristics (short prompts, implicit checks).
     """
-    if not _prev_turn_elicits_reply(prev_prompt):
-        return None
-    if _is_short_assent_or_negation(current_text):
-        return "short_assent_or_negation"
+    pp = (prev_prompt or "").strip()
+    cur = (current_text or "").strip()
+
     if _looks_like_closure_or_status_answer(current_text):
-        return "closure_or_status_answer"
+        if not pp:
+            return None
+        if _prev_turn_elicits_reply(prev_prompt):
+            return "closure_or_status_answer"
+        if has_neighbor_predicted_label:
+            return "closure_or_status_answer"
+        return None
+
+    if not _is_short_assent_or_negation(current_text):
+        return None
+    if not pp:
+        return None
+
+    if _prev_turn_elicits_reply(prev_prompt):
+        return "short_assent_or_negation"
+    # Same-strand agree/disagree: anchor label present + brief reply (e.g. “Sure” after any prior turn)
+    if has_neighbor_predicted_label and len(cur) <= 48:
+        return "short_assent_or_negation"
     return None
 
 
@@ -575,7 +603,11 @@ def _repair_dependent_reply_same_strand_if_needed(
     Short assent/dissent or closure/status answers inherit the previous turn's Tier1.tier2.
     If the model disagrees, repair to the neighbor label when taxonomy-valid; else request retry.
     """
-    reply_kind = _classify_dependent_reply_to_previous(prev_prompt, cleaned_prompt)
+    reply_kind = _classify_dependent_reply_to_previous(
+        prev_prompt,
+        cleaned_prompt,
+        has_neighbor_predicted_label=bool((prev_predicted_label or "").strip()),
+    )
     if not reply_kind:
         return False
     prev_l = (prev_predicted_label or "").strip()
@@ -625,9 +657,9 @@ def _repair_dependent_reply_same_strand_if_needed(
         return True
 
     note = (
-        f"Consistency checking (dependent reply): previous turn **elicited** a brief reply; "
-        f"current line is **`{reply_kind}`** — align **Tier1.tier2** to the **previous** turn (`{prev_l}`), "
-        f"not a new strand (`{curr_l}` → `{prev_l}`)."
+        f"Consistency checking (dependent reply / HC **agree** or **disagree**): the current line is a "
+        f"brief reply (`{reply_kind}`) to the **previous** turn — **Tier1** and **Tier2** (semilabel) must match "
+        f"the previous turn’s code (`{prev_l}`), not a new strand (`{curr_l}` → `{prev_l}`)."
     )
     _mutate_output_to_label(out, prev_l, allowed_codes, note)
     e1, a1 = parse_event_act(prev_l)

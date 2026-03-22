@@ -47,7 +47,7 @@ Use these **precise objects of focus**:
 | **`Cognitive.solution_development`** | **Solutions *for* the learning task** | What is the **answer**, **option**, or **label** for *our* response? How do we **classify** or **justify** our work using those concepts? (e.g. Bloom levels applied to **their** answer, “naming and defining” the **chosen option**). **Not** pure “how we’ll format or sequence the work” — that is **`Metacognitive.planning`** (see `planning-*` HC). |
 
 - **Whole-session rule:** When the **whole episode** (same group, time order) is mainly about **building or agreeing on the task solution**, treat short, ambiguous lines in that streak as **solution_development** unless they clearly ask for a **general definition**. When the episode is mainly about **understanding concepts/theory**, favor **concept_exploration**.
-- **`concept_exploration`:** Primary intent is to learn **what something means in general**—definitions, meanings of terms, theory (e.g. “What is Bloom’s taxonomy?”, “What does metacognitive mean here?”).
+- **`concept_exploration`:** Primary intent is to learn **what something means in general**—definitions, meanings of terms, theory (e.g. “What is Bloom’s taxonomy?”, “What does metacognitive mean here?”). **Do not** confuse with **`Metacognitive.evaluating`**: questions that mainly **judge the quality or adequacy** of an explanation, answer, or tool output (e.g. “Do the GPT results have enough detail?”, “Does our explanation make sense?”) are **`evaluating-*`**, not concept exploration—even if they mention Bloom or taxonomy.
 - **`solution_development`:** Primary intent is to work on the **task product**—how to **label, classify, or justify the group’s answer** using course ideas (e.g. Bloom **levels** applied to *their* response: *remember / understanding / analyzing / …*, “naming and defining” the **option**, “for understanding I think it’s summarize”, “differentiating and proposing”). If the move is mainly **procedural** (“first bullet the points, then organize into paragraphs” for a question), use **`Metacognitive.planning`** / HC **`planning-*`**, not `solution_development`. Human shorthand like `solution\development-*` (give / ask / agree / answer) refers to this **task-solution** strand, **not** abstract concept exploration.
 - **Do not** map every mention of “defining”, “Bloom”, or “understanding” to `concept_exploration`. If the talk is about **which Bloom level fits their work** or **what to call the answer**, that is **`solution_development`**.
 
@@ -60,6 +60,7 @@ Use these **precise objects of focus**:
 
 - **`Coordinative.coordinate_procedures` (not `Cognitive.solution_development`):** “We only need one person to take notes. I will read out from the website that I found the source, and anyone else can just recall.” — This is **group workflow / roles** (note-taker, reader, others’ roles), not labeling a task **answer** or **option**.
 - **`Cognitive.concept_exploration` (not `Socio-emotional.self_disclosure`):** “I have four questions. We are currently working on the revised version of Bloom's Taxonomy. The original taxonomy starts with ‘knowledge,’ but the revised version starts with ‘remember.’ So, we are focusing on the new one.” — **“I have four questions”** is **lesson framing**; the substance is **expository** comparison of taxonomy versions → **concept exploration**, not disclosure of private experience.
+- **Short agree / disagree (same strand as previous):** Utterances like “Sure.”, “Yes.”, “Okay.” after a prior turn in the same discussion — in HC terms **`…-agree`** / **`…-disagree`**. **Tier1.tier2** (label + semilabel / act) should **match the previous line’s** code. The pipeline applies this when **`neighbor_previous_predicted_label`** is available (CSV batch / session context).
 
 ### Label format
 
@@ -117,7 +118,12 @@ Apply in order when in doubt:
 | "The answer should be the last one." | Cognitive.solution_development | Not Metacognitive.evaluating (unless it is explicitly judging output quality) |
 | "We can first search for the answer." | Metacognitive.planning | Not Coordinative.coordinate_procedures (unless it’s about logistics/turn-taking) |
 | "We can move to the next question." | Metacognitive.monitoring | Not Coordinative.coordinate_procedures |
+| "We have one more question." (`monitoring-give`) | Metacognitive.monitoring | Not **Metacognitive.evaluating** |
+| "I can show you task two." (`monitoring-give`) | Metacognitive.monitoring | Not **Cognitive.concept_exploration** |
+| "The evaluate category includes praise, argue, defend, …" (listing Bloom *level* content) | Cognitive.solution_development (`solution\development-give`) | Not **Metacognitive.evaluating** — “evaluate” names the **taxonomy level**, not judging output quality |
 | "GPT results lack detail." | Metacognitive.evaluating | Not Cognitive.solution_development |
+| "Do the GPT results have enough detail?" (`evaluating-ask`) | Metacognitive.evaluating | Not **Cognitive.concept_exploration** (not a definitional question) |
+| "What is Bloom's taxonomy?" (`concept\exploration-ask`) | Cognitive.concept_exploration | Not **Metacognitive.evaluating** (asks meaning/theory, not output quality) |
 | "We can divide the task into three parts." | Coordinative.coordinate_participants | Not Metacognitive.planning |
 | "You go first." | Coordinative.coordinate_procedures | Not Socio-emotional.encouragement |
 | "That’s hilarious!" | Socio-emotional.emotional_expression | Not Cognitive |

@@ -1,8 +1,8 @@
 tier1,tier2,tier3,description,example_utterance
-Cognitive,concept_exploration,,Concepts *of* the learning task: meanings definitions theory (what ideas denote).,What is the bloom taxonomy?
+Cognitive,concept_exploration,,Concepts *of* the learning task: meanings definitions theory (what ideas denote). **Not** Metacognitive.evaluating — do not use for questions that mainly **judge quality/adequacy** of an explanation or tool output (HC `evaluating-*`).,What is Bloom's taxonomy?
 Cognitive,solution_development,,Solutions *for* the learning task: answers options task products (how to complete or label the response).,The answer should be the last one.
 Metacognitive,planning,,Plan problem-solving procedures, including goal setting.,We can first search for the answer.
-Metacognitive,evaluating,,Assess information and task outcomes.,GPT results lack detail.
+Metacognitive,evaluating,,Assess information quality and task outcomes. **evaluating-ask** = questions about adequacy/correctness/clarity of work or outputs; **evaluating-give** = statements about quality (e.g. lacks detail). **Not** Cognitive.concept_exploration (definitional/theory questions about what a concept *is*).,Do the GPT results have enough detail for our task?
 Metacognitive,monitoring,,Evaluate task progress and ensure alignment with plans.,We can move to the next question.
 Coordinative,coordinate_participants,,Allocate tasks and assign roles within the team.,We can divide the task into three parts.
 Coordinative,coordinate_procedures,,Organize workflow and resolve technical issues.,You go first.

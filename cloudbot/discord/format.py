@@ -465,17 +465,38 @@ def format_consistency_checking_discord(cc: dict[str, Any] | None) -> str:
     if status == "skipped":
         reason = str(cc.get("reason") or "")
         return section(
-            "🔁 Consistency checking",
+            "🧩 Consistency · adjacent turns",
             f"_Skipped._ {reason}" if reason else "_Skipped._",
         )
     from cloudbot.pipeline.consistency_checking import format_consistency_markdown_block
 
+    phase = str(cc.get("phase") or "")
+    rk = str(cc.get("reply_kind") or "")
+    header_bits: list[str] = []
+    if phase == "dependent_reply_same_strand":
+        header_bits.append("**Rule:** dependent reply → same **Tier1 + Tier2** as previous turn")
+    elif phase in ("cognitive_ce_sd_alignment", "metacognitive_monitoring_planning_alignment"):
+        header_bits.append("**Rule:** within-tier strand repair")
+    if rk:
+        header_bits.append(f"**Reply kind:** `{rk}`")
+    if cc.get("strand_mismatch"):
+        header_bits.append("**Strand:** must match neighbor turn")
+
+    preamble = "\n".join(header_bits) if header_bits else ""
     body = format_consistency_markdown_block(cc)
+    if preamble:
+        body = preamble + "\n\n" + body
+
+    status_emoji = {"passed": "✅", "repaired": "🔧", "failed": "⚠️"}.get(status, "•")
+    title = f"🧩 Consistency · adjacent turns ({status_emoji} {status})"
+
     if cc.get("retry_required"):
-        body += "\n\n> **Note:** A **full-pipeline LLM retry** was requested so all four roles can revise using the shared instruction in **Context**."
-    if cc.get("status") == "repaired":
-        body += "\n\n> **Auto-repair:** Event aligned to the anchor turn using **act (tier2)** as reference."
-    return section("🔁 Consistency checking (event ↔ act)", body)
+        body += "\n\n> **Next step:** A **full-pipeline LLM retry** runs once so all four roles share the **Context → Consistency retry** instruction."
+    elif cc.get("status") == "repaired" and phase == "dependent_reply_same_strand":
+        body += "\n\n> **Auto-repair:** Short reply / closure was aligned to the **previous** turn’s **Tier1.tier2** code."
+    elif cc.get("status") == "repaired":
+        body += "\n\n> **Auto-repair:** Label aligned using **act (tier2)** and neighbor context (see resolution above)."
+    return section(title, body)
 
 
 def format_adjudicator_discord(data: dict[str, Any]) -> str:
@@ -484,6 +505,8 @@ def format_adjudicator_discord(data: dict[str, Any]) -> str:
     label/decision + **untruncated** rationale (scores + Boundary Critic analysis).
     """
     parts: list[str] = []
+    finals = data.get("final_labels") or []
+    parts.append(format_final_answer_summary(finals))
     cc = data.get("consistency_checking")
     if cc:
         parts.append(format_consistency_checking_discord(cc if isinstance(cc, dict) else None))
@@ -494,8 +517,6 @@ def format_adjudicator_discord(data: dict[str, Any]) -> str:
                 "**Completed** — pipeline was re-run once with the shared consistency instruction (all agents).",
             )
         )
-    finals = data.get("final_labels") or []
-    parts.append(format_final_answer_summary(finals))
     if data.get("boundary_critic_weighed"):
         parts.append(
             section(

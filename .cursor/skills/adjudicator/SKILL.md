@@ -15,6 +15,8 @@ Final agent in the pipeline. You read **all prior outputs**, then decide the **f
 
 **Same strand within Tier1:** (1) **Cognitive** — keep **concept_exploration** vs **solution_development** stable when the conceptual thread continues. (2) **Metacognitive** — a **monitoring** question (e.g. move on to the next part?) plus a short **assent** should stay **`Metacognitive.monitoring`**, not flip to **`planning`**, unless the reply proposes a new procedure.
 
+**Dependent replies (same strand as previous):** When the **previous** turn **elicits** a response (question, check-in, or progress prompt) and the **current** line is only a **short assent/dissent** (e.g. “Sure”, “Yes”, “That sounds good”, “No”) or a **closure/status** answer (e.g. “I think we’re done.”), it continues the **same** communicative strand — **Tier1** and **Tier2** should match the **previous** turn’s label, not a new event/act.
+
 If a **Consistency retry** block appears in the session context, treat it as mandatory: re-analyze the current utterance for **Tier1/Tier2** alignment with the adjacent turn.
 
 ## Golden labels and training

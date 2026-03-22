@@ -16,6 +16,13 @@ Within **Metacognitive**, when the previous turn is **monitoring** (next step /
 progress) and the current line is mislabeled **planning** though it only assents
 to that monitoring question, we align to **monitoring**.
 
+When the **current** line is a **short assent/dissent** (“Sure”, “Yes”, “That
+sounds good”, “No”, …) or a **closure/status answer** to a prior eliciting turn
+(“I think we’re done.”, …), it continues the **same communicative strand** as
+the **previous** turn: **Tier1.tier2** should match the neighbor’s label. If the
+model disagrees, we **repair** to the previous code when it is taxonomy-valid;
+otherwise we request a **full-pipeline LLM retry**.
+
 See golden-labels.md and metacognitive-tier2-hc-subactions.md.
 """
 
@@ -226,6 +233,99 @@ def _current_looks_like_monitoring_assent(current_text: str) -> bool:
     return False
 
 
+def _prev_turn_elicits_reply(prev_prompt: str) -> bool:
+    """Prior line asks, checks in, or otherwise expects a brief next move."""
+    pl = (prev_prompt or "").strip()
+    if len(pl) < 8:
+        return False
+    if "?" in pl:
+        return True
+    if _prev_prompt_suggests_monitoring_question(pl):
+        return True
+    if _looks_like_question(pl):
+        return True
+    if len(pl) >= 28 and re.search(
+        r"(?i)\b(what do you think|do you agree|does that (work|make sense)|"
+        r"your thoughts|thoughts on|right\?|okay\?|is that ok)\b",
+        pl,
+    ):
+        return True
+    return False
+
+
+def _is_short_assent_or_negation(current_text: str) -> bool:
+    """
+    Very short agreement / disagreement that typically answers the *previous* turn
+    (not a new substantive move).
+    """
+    t = (current_text or "").strip()
+    if not t or len(t) > 140:
+        return False
+    if _looks_like_question(t):
+        return False
+    tl = t.lower()
+    if re.match(
+        r"(?i)^(yes|yeah|yep|yup|ok\.?|okay\.?|sure\.?|fine\.?|no\.?|nope|nah|nah\.?)\s*\.?!?$",
+        tl,
+    ):
+        return True
+    if re.match(
+        r"(?i)^(that'?s fine|that is fine|sounds good|sounds great|looks good|works for me|"
+        r"agreed|i agree|i disagree|not really|i don'?t think so|i doubt it)\b",
+        tl,
+    ):
+        return True
+    if _current_looks_like_monitoring_assent(t):
+        return True
+    if len(t) <= 80 and re.search(
+        r"(?i)^(no thanks|no thank you|definitely|absolutely|exactly|for sure|of course)\b",
+        tl,
+    ):
+        return True
+    return False
+
+
+def _classify_dependent_reply_to_previous(prev_prompt: str, current_text: str) -> str | None:
+    """
+    If the current line is plausibly a reply *to* the previous eliciting turn,
+    return a short kind string; else None.
+    """
+    if not _prev_turn_elicits_reply(prev_prompt):
+        return None
+    if _is_short_assent_or_negation(current_text):
+        return "short_assent_or_negation"
+    if _looks_like_closure_or_status_answer(current_text):
+        return "closure_or_status_answer"
+    return None
+
+
+def build_strand_same_reply_retry_instruction(
+    reply_kind: str,
+    prev_prompt: str,
+    prev_l: str,
+    curr_l: str,
+) -> str:
+    """Retry instruction when model code does not match previous strand for dependent replies."""
+    pv = (prev_prompt or "").strip()
+    pv = (pv[:420] + "…") if len(pv) > 420 else pv
+    lines = [
+        "### Consistency checking — retry round (mandatory)",
+        "The **current** utterance is a **dependent reply** to the **previous** turn (short assent/dissent, or closure/status).",
+        "**Rule:** **Tier1** (event) and **Tier2** (act) must match the **previous** turn’s predicted label — same strand.",
+        "",
+        f"- **Detected reply type:** `{reply_kind}`",
+        f"- **Previous turn code (anchor):** `{prev_l}`",
+        f"- **Current model code (mismatch):** `{curr_l}`",
+        "",
+        "**Previous turn (context):**",
+        pv or "—",
+        "",
+        "Re-analyze the **current** line and assign the **same** `Tier1.tier2` as the previous turn unless the utterance clearly **starts a new topic**.",
+        "Output a **revised** full pipeline JSON as usual.",
+    ]
+    return "\n".join(lines)
+
+
 def _utterance_looks_like_planning_proposal(text: str) -> bool:
     """Explicit procedure / structure proposal — do not recode as monitoring."""
     tl = (text or "").strip().lower()
@@ -233,6 +333,33 @@ def _utterance_looks_like_planning_proposal(text: str) -> bool:
         re.search(
             r"(?i)\b(we should first|we can first|let's first|first we|list the|in bullet|"
             r"how should we solve|what steps|strategy|approach|procedure for)\b",
+            tl,
+        )
+    )
+
+
+def _looks_like_closure_or_status_answer(current_text: str) -> bool:
+    """
+    Answers a prior check-in (monitoring / progress) with closure or status —
+    not a new plan or cognitive explanation.
+    """
+    t = (current_text or "").strip()
+    if not t or len(t) > 200:
+        return False
+    if _looks_like_question(t):
+        return False
+    if _utterance_looks_like_planning_proposal(t):
+        return False
+    tl = t.lower()
+    return bool(
+        re.search(
+            r"(?i)\b(i think )?we('?re| are) (done|finished|good|set|through)\b|"
+            r"\b(that'?s|that is) (enough|all|fine|it)\b|"
+            r"\bwe can stop\b|"
+            r"\bno more (questions|for now)\b|"
+            r"\b(i'?m|we'?re) good\b|"
+            r"\bthat works\b|"
+            r"\blet'?s (wrap|stop|finish)\b",
             tl,
         )
     )
@@ -433,6 +560,98 @@ def _repair_metacognitive_monitoring_vs_planning_if_needed(
     return True
 
 
+def _repair_dependent_reply_same_strand_if_needed(
+    out: dict[str, Any],
+    cleaned_prompt: str,
+    context: dict[str, Any] | None,
+    prev_predicted_label: str,
+    curr_predicted_label: str,
+    allowed_codes: list[str],
+    prev_prompt: str = "",
+    *,
+    retry_count: int = 0,
+) -> bool:
+    """
+    Short assent/dissent or closure/status answers inherit the previous turn's Tier1.tier2.
+    If the model disagrees, repair to the neighbor label when taxonomy-valid; else request retry.
+    """
+    reply_kind = _classify_dependent_reply_to_previous(prev_prompt, cleaned_prompt)
+    if not reply_kind:
+        return False
+    prev_l = (prev_predicted_label or "").strip()
+    if not prev_l:
+        return False
+    curr_l = (curr_predicted_label or "").strip()
+    if curr_l == prev_l:
+        return False
+    allowed_set = set(allowed_codes)
+    adj = out.setdefault("adjudicator", {})
+
+    def _pv(s: str) -> str:
+        s = (s or "").strip()
+        return (s[:220] + "…") if len(s) > 220 else s
+
+    if prev_l not in allowed_set:
+        adj["consistency_checking"] = {
+            "status": "failed",
+            "pair_role": "previous_vs_current",
+            "phase": "dependent_reply_same_strand",
+            "reply_kind": reply_kind,
+            "interactive_sequence": "dependent_reply_to_previous",
+            "event_mismatch": True,
+            "strand_mismatch": True,
+            "resolution": (
+                f"Dependent reply (`{reply_kind}`) should match previous strand `{prev_l}`, "
+                f"but that code is not in the active taxonomy — cannot auto-repair."
+            ),
+            "retry_required": retry_count < 1,
+            "retry_instruction_for_agents": build_strand_same_reply_retry_instruction(
+                reply_kind, prev_prompt, prev_l, curr_l
+            ),
+            "current_code": {
+                "full": curr_l,
+                "event": parse_event_act(curr_l)[0],
+                "act": parse_event_act(curr_l)[1],
+            },
+            "neighbor_code": {
+                "full": prev_l,
+                "event": parse_event_act(prev_l)[0],
+                "act": parse_event_act(prev_l)[1],
+            },
+            "prior_model_code": curr_l,
+            "current_sentence_preview": _pv(cleaned_prompt),
+            "neighbor_sentence_preview": _pv(prev_prompt) if prev_prompt else "—",
+        }
+        return True
+
+    note = (
+        f"Consistency checking (dependent reply): previous turn **elicited** a brief reply; "
+        f"current line is **`{reply_kind}`** — align **Tier1.tier2** to the **previous** turn (`{prev_l}`), "
+        f"not a new strand (`{curr_l}` → `{prev_l}`)."
+    )
+    _mutate_output_to_label(out, prev_l, allowed_codes, note)
+    e1, a1 = parse_event_act(prev_l)
+    adj["consistency_checking"] = {
+        "status": "repaired",
+        "pair_role": "previous_vs_current",
+        "phase": "dependent_reply_same_strand",
+        "reply_kind": reply_kind,
+        "interactive_sequence": "dependent_reply_to_previous",
+        "event_mismatch": parse_event_act(curr_l)[0] != e1,
+        "strand_mismatch": True,
+        "resolution": note,
+        "repaired_label": prev_l,
+        "prior_model_code": curr_l,
+        "retry_required": False,
+        "retry_instruction_for_agents": "",
+        "current_code": {"full": prev_l, "event": e1, "act": a1},
+        "neighbor_code": {"full": prev_l, "event": e1, "act": a1},
+        "current_sentence_preview": _pv(cleaned_prompt),
+        "neighbor_sentence_preview": _pv(prev_prompt) if prev_prompt else "—",
+    }
+    return True
+
+
 def _bump_scores_for_label(lc: dict[str, Any], new_label: str, allowed_codes: list[str]) -> None:
     """Force label_scores so ranked winner is new_label (same idea as golden HC repairs)."""
     raw = lc.get("label_scores")
@@ -528,6 +747,22 @@ def apply_consistency_checking(
     if prev_l:
         if _repair_metacognitive_monitoring_vs_planning_if_needed(
             out, cleaned_prompt, ctx, prev_l, curr_l, allowed_codes, prev_prompt=prev_t
+        ):
+            return
+
+    curr_l = extract_primary_label_from_output(out)
+
+    # Phase A3 — dependent replies (short assent/dissent, closure) inherit previous Tier1.tier2.
+    if prev_l and prev_t:
+        if _repair_dependent_reply_same_strand_if_needed(
+            out,
+            cleaned_prompt,
+            ctx,
+            prev_l,
+            curr_l,
+            allowed_codes,
+            prev_prompt=prev_t,
+            retry_count=retry_count,
         ):
             return
 
@@ -729,6 +964,8 @@ def format_consistency_markdown_block(cc: dict[str, Any]) -> str:
         "**Step 4 — Alignment:** if events differ but acts form an interactive pair, align **event** using **act** as reference. "
         "Within **Cognitive**, keep **concept_exploration** vs **solution_development** stable; within **Metacognitive**, "
         "keep **monitoring** vs **planning** stable when the reply assents to a progress/next-step question.",
+        "**Step 5 — Dependent replies:** if the current line is a **short assent/dissent** or **closure/status** answer to the "
+        "previous eliciting turn, **Tier1.tier2** should match the **previous** turn (same strand).",
         "",
         "```",
         f"{'':22}  Event (Tier1)   Act (Tier2)   Full code",
@@ -736,6 +973,17 @@ def format_consistency_markdown_block(cc: dict[str, Any]) -> str:
         f"{'Neighbor turn':22}  {str(nb.get('event', '—')):14} {str(nb.get('act', '—')):12} {nb.get('full', '—')}",
         "```",
     ]
+    phase = str(cc.get("phase") or "").strip()
+    rk = str(cc.get("reply_kind") or "").strip()
+    if phase or rk:
+        lines.append("")
+        lines.append(
+            f"- **Phase / rule:** `{phase or '—'}`"
+            + (f" · reply kind: `{rk}`" if rk else "")
+        )
+    pm = str(cc.get("prior_model_code") or "").strip()
+    if pm:
+        lines.append(f"- **Model code before repair:** `{pm}`")
     lines.extend(
         [
             "",
@@ -745,6 +993,10 @@ def format_consistency_markdown_block(cc: dict[str, Any]) -> str:
             f"- **Event mismatch:** {'yes' if cc.get('event_mismatch') else 'no'}",
         ]
     )
+    if cc.get("strand_mismatch"):
+        lines.append(
+            "- **Strand check:** dependent reply — **Tier1.tier2** should match the **previous** turn (same strand)"
+        )
     pv = cc.get("current_sentence_preview")
     nv = cc.get("neighbor_sentence_preview")
     if pv:

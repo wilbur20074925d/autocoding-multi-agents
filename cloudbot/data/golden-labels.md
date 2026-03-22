@@ -56,6 +56,11 @@ Use these **precise objects of focus**:
 - **Coordinative:** `coordinate_participants` = allocate tasks/roles; `coordinate_procedures` = manage workflow/turn-taking/technical logistics.
 - **Socio-emotional:** `emotional_expression` = feelings/reactions; `encouragement` = praise/cheer; `self_disclosure` = personal experience/unfamiliarity.
 
+**Examples (calibration — multi-agent pipeline):**
+
+- **`Coordinative.coordinate_procedures` (not `Cognitive.solution_development`):** “We only need one person to take notes. I will read out from the website that I found the source, and anyone else can just recall.” — This is **group workflow / roles** (note-taker, reader, others’ roles), not labeling a task **answer** or **option**.
+- **`Cognitive.concept_exploration` (not `Socio-emotional.self_disclosure`):** “I have four questions. We are currently working on the revised version of Bloom's Taxonomy. The original taxonomy starts with ‘knowledge,’ but the revised version starts with ‘remember.’ So, we are focusing on the new one.” — **“I have four questions”** is **lesson framing**; the substance is **expository** comparison of taxonomy versions → **concept exploration**, not disclosure of private experience.
+
 ### Label format
 
 - **Canonical form (latest):** `Tier1.tier2` (e.g. `Cognitive.concept_exploration`, `Metacognitive.monitoring`).

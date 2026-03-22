@@ -43,6 +43,9 @@ class AdjudicatorOutput(TypedDict, total=False):
     # Set by pipeline postprocess: structured analysis (scores + Boundary Critic)
     adjudication_analysis: str
     boundary_critic_weighed: bool
+    # Event–act alignment across adjacent turns (Ethnography of Communication)
+    consistency_checking: dict[str, Any]
+    consistency_llm_retry_completed: bool
 
 
 class PipelineOutput(TypedDict, total=False):

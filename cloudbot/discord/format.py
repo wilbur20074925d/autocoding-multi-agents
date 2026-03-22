@@ -455,12 +455,45 @@ def format_final_answer_summary(final_labels: list[Any]) -> str:
     return f"**⚖ Final:** {line}"
 
 
+def format_consistency_checking_discord(cc: dict[str, Any] | None) -> str:
+    """
+    Structured display for adjudicator consistency checking (event–act alignment across turns).
+    """
+    if not cc or not isinstance(cc, dict):
+        return ""
+    status = str(cc.get("status") or "")
+    if status == "skipped":
+        reason = str(cc.get("reason") or "")
+        return section(
+            "🔁 Consistency checking",
+            f"_Skipped._ {reason}" if reason else "_Skipped._",
+        )
+    from cloudbot.pipeline.consistency_checking import format_consistency_markdown_block
+
+    body = format_consistency_markdown_block(cc)
+    if cc.get("retry_required"):
+        body += "\n\n> **Note:** A **full-pipeline LLM retry** was requested so all four roles can revise using the shared instruction in **Context**."
+    if cc.get("status") == "repaired":
+        body += "\n\n> **Auto-repair:** Event aligned to the anchor turn using **act (tier2)** as reference."
+    return section("🔁 Consistency checking (event ↔ act)", body)
+
+
 def format_adjudicator_discord(data: dict[str, Any]) -> str:
     """
     Full Adjudicator block: verdict line + optional Boundary-Critic weighed note + per-item
     label/decision + **untruncated** rationale (scores + Boundary Critic analysis).
     """
     parts: list[str] = []
+    cc = data.get("consistency_checking")
+    if cc:
+        parts.append(format_consistency_checking_discord(cc if isinstance(cc, dict) else None))
+    if data.get("consistency_llm_retry_completed"):
+        parts.append(
+            section(
+                "🔁 Consistency LLM retry",
+                "**Completed** — pipeline was re-run once with the shared consistency instruction (all agents).",
+            )
+        )
     finals = data.get("final_labels") or []
     parts.append(format_final_answer_summary(finals))
     if data.get("boundary_critic_weighed"):

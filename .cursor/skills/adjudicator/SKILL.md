@@ -9,6 +9,12 @@ description: Makes final arbitration for autocoding by reading Signal Extractor,
 
 Final agent in the pipeline. You read **all prior outputs**, then decide the **final label(s)** and whether to trigger an optional **one-round retry** (to Boundary Critic or Label Coder).
 
+### Consistency checking (event ↔ act)
+
+**Event** = Tier1 (Cognitive, Metacognitive, …); **act** = Tier2. Consecutive **interactive** turns (ask/answer, give/agree, give/disagree, give/build on) should stay in the **same event**. When **neighbor predicted labels** are provided in context (`neighbor_previous_predicted_label` / `neighbor_next_predicted_label`), use **act (tier2) as the reference** to fix **event** mismatches—the pipeline may auto-repair or request a **full-pipeline LLM retry** with a shared instruction to all four agents.
+
+If a **Consistency retry** block appears in the session context, treat it as mandatory: re-analyze the current utterance for **Tier1/Tier2** alignment with the adjacent turn.
+
 ## Golden labels and training
 
 - **Golden labels are primary.** When a golden label (e.g. HC1, HC2, or provided `label`) is available for the prompt, **prefer a final label that matches it** when the evidence and the Boundary Critic’s challenges allow it. If the critic’s challenge is strong (e.g. wrong tier1 boundary, evidence not explicit), you may accept the critic’s **suggested_alternative** or mark uncertain; but when the golden label is supported by evidence and not successfully challenged, keep the golden label.

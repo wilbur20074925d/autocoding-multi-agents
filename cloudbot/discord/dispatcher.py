@@ -55,9 +55,28 @@ def _format_context(context: dict[str, Any] | None) -> str | None:
         s = str(v).strip()
         if s:
             pairs.append((k, s))
+    prev_lab = str(context.get("neighbor_previous_predicted_label") or "").strip()
+    next_lab = str(context.get("neighbor_next_predicted_label") or "").strip()
+    if prev_lab:
+        pairs.append(("neighbor_previous_predicted_label", prev_lab))
+    if next_lab:
+        pairs.append(("neighbor_next_predicted_label", next_lab))
     if not pairs:
         return None
     return key_value_pairs(pairs, title="Context")
+
+
+def _consistency_retry_banner(context: dict[str, Any] | None) -> str | None:
+    """When LLM retry runs for consistency, surface the same instruction on all four role messages."""
+    if not context:
+        return None
+    ins = str(context.get("consistency_retry_instruction") or "").strip()
+    if not ins:
+        return None
+    return section(
+        "⚠️ Consistency retry — instruction for all four agents",
+        ins,
+    )
 
 
 def _parse_label_struct(label: Any) -> tuple[str, str, str]:
@@ -308,6 +327,7 @@ def prepare_four_bot_messages(
     prompt = (pipeline_output.get("prompt") or "") if include_prompt_in_first else ""
     ctx = pipeline_output.get("context") if isinstance(pipeline_output, dict) else None
     ctx_block = _format_context(ctx)
+    cr_banner = _consistency_retry_banner(ctx if isinstance(ctx, dict) else None)
     out: list[tuple[str, str]] = []
 
     # 1. Signal Extractor
@@ -315,6 +335,8 @@ def prepare_four_bot_messages(
     msg1 = _format_signal_extractor(se_data)
     if prompt:
         msg1 = format_full_prompt_section(prompt) + "\n\n" + msg1
+    if cr_banner:
+        msg1 = cr_banner + "\n\n" + msg1
     if ctx_block:
         msg1 = ctx_block + "\n\n" + msg1
     out.append((SIGNAL_EXTRACTOR, truncate(msg1, max_len=max_message_len)))
@@ -322,6 +344,8 @@ def prepare_four_bot_messages(
     # 2. Label Coder
     lc_data = pipeline_output.get("label_coder")
     msg2 = _format_label_coder(lc_data)
+    if cr_banner:
+        msg2 = cr_banner + "\n\n" + msg2
     if ctx_block:
         msg2 = ctx_block + "\n\n" + msg2
     out.append((LABEL_CODER, truncate(msg2, max_len=max_message_len)))
@@ -329,6 +353,8 @@ def prepare_four_bot_messages(
     # 3. Boundary Critic
     bc_data = pipeline_output.get("boundary_critic")
     msg3 = _format_boundary_critic(bc_data)
+    if cr_banner:
+        msg3 = cr_banner + "\n\n" + msg3
     if ctx_block:
         msg3 = ctx_block + "\n\n" + msg3
     out.append((BOUNDARY_CRITIC, truncate(msg3, max_len=max_message_len)))
@@ -336,6 +362,8 @@ def prepare_four_bot_messages(
     # 4. Adjudicator
     adj_data = pipeline_output.get("adjudicator")
     msg4 = _format_adjudicator(adj_data, ctx)
+    if cr_banner:
+        msg4 = cr_banner + "\n\n" + msg4
     if ctx_block:
         msg4 = ctx_block + "\n\n" + msg4
     out.append((ADJUDICATOR, truncate(msg4, max_len=max_message_len)))

@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from cloudbot.llm.openai_compat import chat_completions_json, load_config_from_env
+from cloudbot.pipeline.consistency_checking import (
+    append_consistency_to_adjudicator_rationale,
+    apply_consistency_checking,
+)
 
 # Default taxonomy path relative to cloudbot
 _TAXONOMY_PATH = Path(__file__).resolve().parent.parent / "data" / "label-taxonomy.csv"
@@ -1614,7 +1618,12 @@ def _postprocess_pipeline_output(
     if isinstance(bc, dict) and isinstance(lc, dict):
         _dedupe_boundary_critic_challenges(bc)
         _enrich_close_score_challenges_pro_con(bc, lc)
+    apply_consistency_checking(out, cleaned_prompt, out.get("context"), allowed_codes)
+    if (out.get("adjudicator") or {}).get("consistency_checking", {}).get("status") == "repaired":
+        _ensure_label_coder_full_scores(out, cleaned_prompt, allowed_codes)
+        _sync_label_coder_and_adjudicator_from_scores(out)
     _finalize_adjudicator_with_boundary_critic(out)
+    append_consistency_to_adjudicator_rationale(out)
 
 
 def _maybe_repair_concept_exploration_bias(
@@ -1927,10 +1936,29 @@ def _format_session_context_for_llm(
         lines.append(f"**Heuristic session cognitive tilt:** `{ov.get('cognitive_tilt', 'neutral')}`")
         lines.append(str(ov.get("summary_line") or ""))
 
+    nctx = context or {}
+    pl = str(nctx.get("neighbor_previous_predicted_label") or "").strip()
+    nl = str(nctx.get("neighbor_next_predicted_label") or "").strip()
+    if pl or nl:
+        lines.append("")
+        lines.append("### Neighbor predicted labels (consistency checking)")
+        if pl:
+            lines.append(f"- **Previous turn label:** `{pl}`")
+        if nl:
+            lines.append(f"- **Next turn label:** `{nl}`")
+        lines.append(
+            "_Use these with the current utterance: **Tier1 (event)** should align across interactive pairs "
+            "(ask/answer, give/agree, …); **Tier2 (act)** is the reference when fixing event._"
+        )
+    if nctx.get("consistency_retry_instruction"):
+        lines.append("")
+        lines.append("### Consistency checking — retry round (shared across all agents)")
+        lines.append(str(nctx["consistency_retry_instruction"]).strip())
+
     return "\n".join(lines)
 
 
-def _run_llm_pipeline(cleaned_prompt: str, context: dict[str, Any]) -> dict[str, Any] | None:
+def _run_llm_pipeline_once(cleaned_prompt: str, context: dict[str, Any]) -> dict[str, Any] | None:
     cfg = load_config_from_env()
     if cfg is None:
         return None
@@ -1986,6 +2014,7 @@ Rules:
 - Boundary Critic must only challenge, not decide.
 - If Signal Extractor ambiguity says close top-two scores (or equivalent), Boundary Critic must output at least one challenge for that span (no empty challenges in this case).
 - Adjudicator must decide (accept_coder / accept_critic / combine / uncertain) and justify.
+- **Consistency checking (Adjudicator):** When **neighbor predicted labels** are provided in context (`neighbor_previous_predicted_label` / `neighbor_next_predicted_label`), reason about whether **Tier1 (event)** stays aligned across **interactive pairs** (ask/answer, give/agree, give/disagree, give/build on) with the adjacent turn. **Act (tier2)** is the reference for resolving event mismatches; consecutive interactive acts should share the same event. If a **Consistency retry** block appears above, follow it and output a revised full JSON.
 
 Golden-labels criteria excerpt:
 {golden}
@@ -2015,7 +2044,35 @@ Golden-labels criteria excerpt:
     se = out.get("signal_extractor")
     if isinstance(se, dict):
         se["session_overview"] = _build_session_overview_dict(context, cleaned_prompt)
+    return out
+
+
+def _run_llm_pipeline(cleaned_prompt: str, context: dict[str, Any]) -> dict[str, Any] | None:
+    allowed = _taxonomy_codes()
+    out = _run_llm_pipeline_once(cleaned_prompt, context)
+    if out is None:
+        return None
     _postprocess_pipeline_output(out, cleaned_prompt, allowed)
+
+    cc = (out.get("adjudicator") or {}).get("consistency_checking") or {}
+    retry_ct = int((context or {}).get("consistency_llm_retry_count", 0) or 0)
+    if (
+        cc.get("status") == "failed"
+        and cc.get("retry_required")
+        and retry_ct < 1
+    ):
+        ctx2 = dict(context or {})
+        ctx2["consistency_llm_retry_count"] = 1
+        ctx2["consistency_retry_instruction"] = str(cc.get("retry_instruction_for_agents") or "").strip()
+        out2 = _run_llm_pipeline_once(cleaned_prompt, ctx2)
+        if out2 is not None:
+            merged_ctx = dict(out2.get("context") or {})
+            merged_ctx.update(ctx2)
+            out2["context"] = merged_ctx
+            _postprocess_pipeline_output(out2, cleaned_prompt, allowed)
+            adj = out2.setdefault("adjudicator", {})
+            adj["consistency_llm_retry_completed"] = True
+            return out2
     return out
 
 

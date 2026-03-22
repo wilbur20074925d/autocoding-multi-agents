@@ -319,13 +319,11 @@ class ControllerBot(discord.Client):
         predicted_col = "predicted_label_multi_agents"
         output_rows: list[dict[str, Any]] = []
 
-        # Process one row at a time; do not start next until previous completes.
+        # Pass 1: run pipeline per row (sequential). Pass 2: enrich neighbor predicted labels + consistency checking.
+        row_results: list[dict[str, Any]] = []
         for i, row in enumerate(rows, start=1):
-            row_out = dict(row)
-            row_out[predicted_col] = ""
             sentence = (row.get("sentence") or row.get("prompt") or "").strip()
             if not sentence:
-                output_rows.append(row_out)
                 continue
 
             group = (row.get("group") or "").strip()
@@ -348,6 +346,64 @@ class ControllerBot(discord.Client):
                 "session_prompts_after": after_nb,
             }
 
+            pipeline_output = await loop.run_in_executor(
+                None,
+                lambda s=sentence, c=dict(exec_ctx): self.run_pipeline(s, c),
+            )
+            if "prompt" not in pipeline_output:
+                pipeline_output["prompt"] = sentence
+
+            row_results.append(
+                {
+                    "csv_row_index": i,
+                    "row": row,
+                    "sentence": sentence,
+                    "exec_ctx": exec_ctx,
+                    "hc1": hc1,
+                    "hc2": hc2,
+                    "pipeline_output": pipeline_output,
+                }
+            )
+
+        # Pass 2: neighbor labels for event–act consistency (current vs next / previous vs current).
+        if row_results:
+            from cloudbot.pipeline.consistency_checking import extract_primary_label_from_output
+            from cloudbot.pipeline.run_pipeline import _postprocess_pipeline_output, _taxonomy_codes
+
+            m = len(row_results)
+            for j in range(m):
+                po = row_results[j]["pipeline_output"]
+                s = row_results[j]["sentence"]
+                ctx = dict(po.get("context") or {})
+                if j > 0:
+                    ctx["neighbor_previous_predicted_label"] = extract_primary_label_from_output(
+                        row_results[j - 1]["pipeline_output"]
+                    )
+                    ctx["neighbor_previous_prompt"] = row_results[j - 1]["sentence"]
+                if j + 1 < m:
+                    ctx["neighbor_next_predicted_label"] = extract_primary_label_from_output(
+                        row_results[j + 1]["pipeline_output"]
+                    )
+                    ctx["neighbor_next_prompt"] = row_results[j + 1]["sentence"]
+                po["context"] = ctx
+                _postprocess_pipeline_output(po, s, _taxonomy_codes())
+
+        # Post Discord + build merged CSV rows in original row order.
+        rr_iter = iter(row_results)
+        for i, row in enumerate(rows, start=1):
+            row_out = dict(row)
+            row_out[predicted_col] = ""
+            sentence = (row.get("sentence") or row.get("prompt") or "").strip()
+            if not sentence:
+                output_rows.append(row_out)
+                continue
+
+            item = next(rr_iter)
+            exec_ctx = item["exec_ctx"]
+            pipeline_output = item["pipeline_output"]
+            hc1 = item["hc1"]
+            hc2 = item["hc2"]
+
             await message.channel.send(
                 format_controller_label_ack(
                     sentence,
@@ -356,13 +412,6 @@ class ControllerBot(discord.Client):
                     csv_row_total=len(rows),
                 )
             )
-
-            pipeline_output = await loop.run_in_executor(
-                None,
-                lambda s=sentence, c=dict(exec_ctx): self.run_pipeline(s, c),
-            )
-            if "prompt" not in pipeline_output:
-                pipeline_output["prompt"] = sentence
 
             messages = prepare_four_bot_messages_split(
                 pipeline_output,
@@ -383,7 +432,6 @@ class ControllerBot(discord.Client):
                         else:
                             await message.channel.send(f"**[{display_name}]**\n{text}")
 
-            # After the four roles, Controller posts HC check (structured; no right/wrong).
             predicted = None
             try:
                 finals = (pipeline_output.get("adjudicator") or {}).get("final_labels") or []
